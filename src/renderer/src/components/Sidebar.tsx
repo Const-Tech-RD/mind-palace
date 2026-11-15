@@ -12,6 +12,13 @@ export function Sidebar() {
   const deleteChat = useStore((s) => s.deleteChat)
   const view = useStore((s) => s.view)
   const showProjects = useStore((s) => s.showProjects)
+  const showReminders = useStore((s) => s.showReminders)
+  const showPalace = useStore((s) => s.showPalace)
+  const somethingNew = useStore(
+    (s) =>
+      s.palace?.rooms.some((r) => !s.seenRooms.includes(r.id) && (r.newItems.length > 0 || r.newShell !== null)) ?? false
+  )
+  const waiting = useStore((s) => s.reminders.length)
 
   const groups = useMemo(() => groupChatsByRoom(chats, rooms ?? []), [chats, rooms])
 
@@ -27,13 +34,43 @@ export function Sidebar() {
         </button>
         <button
           type="button"
+          onClick={() => void showPalace()}
+          aria-current={view === 'palace' ? 'page' : undefined}
+          className={`mt-2 flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-sm ${
+            view === 'palace' ? 'bg-white/10 text-paper' : 'text-paper/80 hover:bg-white/5'
+          }`}
+        >
+          Palace
+          {somethingNew && (
+            <span className="rounded-full bg-amber-300 px-1.5 text-xs font-medium text-ink" aria-label="something new">
+              New
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
           onClick={() => void showProjects()}
           aria-current={view === 'projects' ? 'page' : undefined}
-          className={`mt-2 w-full rounded-md px-3 py-1.5 text-left text-sm ${
+          className={`mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm ${
             view === 'projects' ? 'bg-white/10 text-paper' : 'text-paper/80 hover:bg-white/5'
           }`}
         >
           Projects
+        </button>
+        <button
+          type="button"
+          onClick={() => void showReminders()}
+          aria-current={view === 'reminders' ? 'page' : undefined}
+          className={`mt-1 flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-sm ${
+            view === 'reminders' ? 'bg-white/10 text-paper' : 'text-paper/80 hover:bg-white/5'
+          }`}
+        >
+          Reminders
+          {waiting > 0 && (
+            <span className="rounded-full bg-paper px-1.5 text-xs font-medium text-ink" aria-label={`${waiting} waiting`}>
+              {waiting}
+            </span>
+          )}
         </button>
       </div>
 

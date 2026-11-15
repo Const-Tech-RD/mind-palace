@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ChatEvent } from '@shared/chat'
-import { API_KEY, CHAT_EVENT_CHANNEL, IPC_CHANNELS, type IpcChannel, type MindPalaceApi } from '@shared/ipc'
+import {
+  API_KEY,
+  APP_EVENT_CHANNEL,
+  CHAT_EVENT_CHANNEL,
+  IPC_CHANNELS,
+  type AppEvent,
+  type IpcChannel,
+  type MindPalaceApi
+} from '@shared/ipc'
 
 const channels: ReadonlySet<string> = new Set(IPC_CHANNELS)
 
@@ -18,6 +26,11 @@ const api: MindPalaceApi = {
     const handler = (_event: unknown, payload: ChatEvent): void => listener(payload)
     ipcRenderer.on(CHAT_EVENT_CHANNEL, handler)
     return () => ipcRenderer.removeListener(CHAT_EVENT_CHANNEL, handler)
+  },
+  onAppEvent: (listener) => {
+    const handler = (_event: unknown, payload: AppEvent): void => listener(payload)
+    ipcRenderer.on(APP_EVENT_CHANNEL, handler)
+    return () => ipcRenderer.removeListener(APP_EVENT_CHANNEL, handler)
   }
 }
 

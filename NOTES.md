@@ -220,3 +220,68 @@ Not verified:
 Worth knowing:
 
 - The stored `timezone` setting on the development machine is `America/La_Paz` (what macOS reports), which is the same offset as Santo Domingo. It only matters across a daylight-saving boundary, which neither zone has.
+
+## Phase 5 · Reminders (2026-11-15)
+
+What exists:
+
+- **Rules** in `src/shared/reminders.ts`: a reminder is due 3, 7 and 14 days after the last activity, then every 14 days; only active projects; a snooze holds it back until it ends.
+- **Scheduler**: 5 seconds after launch and every 15 minutes. After a long absence a project gets one reminder, with every cadence point already in the past counted as sent, so there is no burst.
+- **Text** from Haiku over the project's chats (project name plus one small next step), stored on the reminder row. If the model fails, the text is the project title and its stored next step.
+- **Notifications**: at most two a day across all projects, counted on the local day; the rest go to the inbox only. Clicking opens the project's chat; on macOS the notification also carries Done and Snooze 2 weeks. A switch in the inbox turns notifications off (setting `notifications`).
+- **Inbox** (Reminders in the sidebar, with a count): every reminder not reacted to yet, with Open, Done, Snooze 2 weeks, Pause and Drop.
+- **Outcomes** in `reminders.action`: `opened`, `done`, `snoozed`, `paused`, `dropped`, `ignored`.
+
+Decisions (my interpretation where the plan was silent):
+
+- **`ignored`** is set when the next reminder for the same project comes due with no reaction to the previous one.
+- **An action taken in the projects panel**, not through the reminder, still answers that project's waiting reminder with the matching outcome. Reopen answers nothing.
+- **A new message in a linked chat** counts as `opened` (the person came back on their own) and restarts the cadence (`reminders_sent = 0`).
+- **A reminder over the daily cap is never notified later.** It stays in the inbox, which is how the plan words it.
+- **`due_at`** is when the reminder came due, which can be days before it was created if the machine was off.
+- **A notification that could not be shown** is not counted against the daily cap.
+- Reminders, the inbox count and notifications use two new one-way events on `app:event`; no schema change.
+
+Verified live on 2026-11-15 (E2E cases N1 to N5 in `tests/e2e/run.mjs`):
+
+- At launch, three seeded quiet projects each got one reminder with model-written text; the fresh and the paused project got none; the 20-day project ended with `reminders_sent = 3`.
+- Two of the three were marked notified, the two longest overdue.
+- Done, Snooze and Open from the inbox acted on the project and logged `done`, `snoozed`, `opened`.
+- The notifications switch stored `off`; a new message reset the cadence.
+
+Not verified:
+
+- **Whether macOS actually displayed the notifications**, and their Done and Snooze buttons. The app issued them and recorded them as sent; nobody looked at Notification Centre. Unsigned development builds may show them without buttons.
+- **Clicking a notification** to open the project.
+- **The 15-minute timer** and reminders arriving as real days pass: tested with seeded dates and a fake clock only.
+- **Windows.**
+
+## Phase 4 · Palace view, with illustrated rooms (2026-11-15)
+
+This phase departs from the plan on purpose. The plan draws each room from sprites on the asset spec's grid with PixiJS; no such sprites exist, and the owner chose whole illustrated rooms instead. PixiJS is not used.
+
+What exists:
+
+- **Palace** in the sidebar, with a tab per room. Each room shows its illustration, the shell tier, the trophies, the furniture earned, and a bar each for the streak and for finished projects with what the next milestone gives.
+- **The shell tier is shown in the picture**: a bare room is dim and almost colourless, a painted one has part of its colour, a finished one all of it (`SHELL_FILTER` in `PalaceView.tsx`).
+- **Furniture is a list of labels under the picture**, not objects drawn in it. Labels come from the catalog ids (`itemLabel`).
+- **What is new**: finishing a project or extending a streak marks the Palace button "New"; opening the room announces and highlights the new items once. What a room held at the last visit is stored in the setting `palace.seen.<room>`.
+- **Model** in `src/shared/palace.ts` (`buildPalace`), fed by the same engine as before; unlocks are still never stored.
+- **Pictures**: `src/renderer/src/assets/rooms/{coding,music,art,mailroom}.jpg`, 1600 px wide copies of the generated rooms.
+
+Decisions (my interpretation):
+
+- **Progress bars** show the value out of the next milestone ("5 days of 8" is five eighths full). An earlier version measured from the last milestone reached, which left the bar empty right after each milestone.
+- **A room never visited announces nothing**: its starting furniture is not news.
+- **The streak bar shows the current run**, while milestones stay judged on the best run, as the engine does.
+- **Room pictures**: Coding uses the NataTech studio, Music the rehearsal room, Mail the mailroom. **Art uses the tinkerer's workshop**, which is the closest picture available and does not look like an art studio.
+
+Verified live on 2026-11-15 (E2E cases V1 to V4): a five-day streak with two finished projects, an unused room, a 21-day streak, and the announcement after finishing a third project.
+
+Not verified, or known gaps:
+
+- **Not what the spec describes.** No grid, no sprites, no tinting, no depth sorting, no slots. The asset spec and `rules.json` layout are unused by this view.
+- **Painted and finished look alike at a glance**; only the bare room is clearly different.
+- **Streaks were seeded with dated messages**, not earned over real days.
+- **The unlock toast "when it happens"** (the plan's diff of yesterday against today) is done as "new since the room was last opened", not as a pop-up at the moment of unlocking.
+- The view was looked at in one window size only.

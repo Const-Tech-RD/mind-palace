@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import type { AuthState, ChatEvent, ChatMessage, ChatSummary } from '@shared/chat'
-import type { AppStatus } from '@shared/ipc'
+import type { AppEvent, AppStatus } from '@shared/ipc'
+import type { PalaceView } from '@shared/palace'
 import type { ProjectAction, ProjectSummary } from '@shared/projects'
+import type { ReminderItem, ReminderResponse } from '@shared/reminders'
 
 interface Streaming {
   text: string
@@ -15,8 +17,18 @@ interface State {
   auth: AuthState | null
   chats: ChatSummary[]
   projects: ProjectSummary[]
+  /** Reminders waiting for a reaction. */
+  reminders: ReminderItem[]
+  /** Whether system notifications are shown for reminders. */
+  notificationsOn: boolean
+  /** Null until the palace has been loaded once. */
+  palace: PalaceView | null
+  /** The room showing in the palace view. */
+  palaceRoomId: string | null
+  /** Rooms looked at since the palace was last loaded: their news no longer counts for the sidebar badge. */
+  seenRooms: string[]
   /** Which main view is showing. */
-  view: 'chat' | 'projects'
+  view: 'chat' | 'projects' | 'reminders' | 'palace'
   /** Null means the "new chat" screen. */
   activeChatId: string | null
   messages: Record<string, ChatMessage[]>
@@ -40,7 +52,16 @@ interface State {
   /** Answers the "Track it?" card. */
   answerSuggestion(chatId: string, track: boolean): Promise<void>
   projectAction(projectId: string, action: ProjectAction): Promise<void>
+  showPalace(roomId?: string): Promise<void>
+  refreshPalace(): Promise<void>
+  /** Marks the room as looked at; what is highlighted as new stays on screen until the next refresh. */
+  markRoomSeen(roomId: string): Promise<void>
+  showReminders(): Promise<void>
+  refreshReminders(): Promise<void>
+  respondToReminder(reminderId: string, response: ReminderResponse): Promise<void>
+  setNotifications(enabled: boolean): Promise<void>
   handleEvent(event: ChatEvent): void
+  handleAppEvent(event: AppEvent): void
 }
 
 const describe = (error: unknown): string => {
@@ -59,6 +80,11 @@ export const useStore = create<State>((set, get) => ({
   auth: null,
   chats: [],
   projects: [],
+  reminders: [],
+  notificationsOn: true,
+  palace: null,
+  palaceRoomId: null,
+  seenRooms: [],
   view: 'chat',
   activeChatId: null,
   messages: {},
@@ -69,12 +95,15 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     try {
-      const [status, auth, chats] = await Promise.all([
+      const [status, auth, chats, reminders, notifications] = await Promise.all([
         window.mindPalace.status(),
         window.mindPalace.invoke('auth:check'),
-        window.mindPalace.invoke('chat:list')
+        window.mindPalace.invoke('chat:list'),
+        window.mindPalace.invoke('reminder:list'),
+        window.mindPalace.invoke('reminder:notifications', {})
       ])
-      set({ status, auth, chats })
+      set({ status, auth, chats, reminders, notificationsOn: notifications.enabled })
+      void get().refreshPalace()
     } catch (error) {
       set({ appError: describe(error) })
     }
@@ -163,7 +192,7 @@ export const useStore = create<State>((set, get) => ({
   async moveChat(chatId, roomId) {
     try {
       await window.mindPalace.invoke('chat:move', { chatId, roomId })
-      await get().refreshChats()
+      await Promise.all([get().refreshChats(), get().refreshPalace()])
     } catch (error) {
       set((s) => ({ errors: { ...s.errors, [chatId]: describe(error) } }))
     }
@@ -186,7 +215,86 @@ export const useStore = create<State>((set, get) => ({
     } catch (error) {
       set({ appError: describe(error) })
     }
-    await Promise.all([get().refreshProjects(), get().refreshChats()])
+    await Promise.all([get().refreshProjects(), get().refreshChats(), get().refreshReminders(), get().refreshPalace()])
+  },
+
+  async showPalace(roomId) {
+    set((s) => ({ view: 'palace', appError: null, palaceRoomId: roomId ?? s.palaceRoomId }))
+    await get().refreshPalace()
+    // Default to the room of the chat that is open, else the first room.
+    set((s) => {
+      if (s.palaceRoomId && s.palace?.rooms.some((r) => r.id === s.palaceRoomId)) return {}
+      const openRoom = s.chats.find((c) => c.id === s.activeChatId)?.roomId
+      const fallback = s.palace?.rooms.find((r) => r.id === openRoom)?.id ?? s.palace?.rooms[0]?.id ?? null
+      return { palaceRoomId: fallback }
+    })
+  },
+
+  async refreshPalace() {
+    try {
+      set({ palace: await window.mindPalace.invoke('palace:view'), seenRooms: [] })
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  async markRoomSeen(roomId) {
+    try {
+      await window.mindPalace.invoke('palace:seen', { roomId })
+      set((s) => (s.seenRooms.includes(roomId) ? {} : { seenRooms: [...s.seenRooms, roomId] }))
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  async showReminders() {
+    set({ view: 'reminders', appError: null })
+    await get().refreshReminders()
+  },
+
+  async refreshReminders() {
+    try {
+      set({ reminders: await window.mindPalace.invoke('reminder:list') })
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  async respondToReminder(reminderId, response) {
+    try {
+      const target = await window.mindPalace.invoke('reminder:respond', { reminderId, response })
+      set({ appError: null })
+      if (response === 'open') {
+        if (target.chatId) await get().selectChat(target.chatId)
+        else await get().showProjects()
+      }
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+    await Promise.all([get().refreshReminders(), get().refreshProjects(), get().refreshPalace()])
+  },
+
+  async setNotifications(enabled) {
+    try {
+      const result = await window.mindPalace.invoke('reminder:notifications', { enabled })
+      set({ notificationsOn: result.enabled })
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  handleAppEvent(event) {
+    switch (event.type) {
+      case 'reminders_changed':
+        void get().refreshReminders()
+        if (get().view === 'projects') void get().refreshProjects()
+        break
+      case 'open_project':
+        void get().refreshReminders()
+        if (event.chatId) void get().refreshChats().then(() => get().selectChat(event.chatId!))
+        else void get().showProjects()
+        break
+    }
   },
 
   handleEvent(event) {
@@ -224,6 +332,7 @@ export const useStore = create<State>((set, get) => ({
             : s.messages
         }))
         void get().refreshChats()
+        void get().refreshPalace()
         break
       case 'error':
         set((s) => ({
@@ -234,6 +343,7 @@ export const useStore = create<State>((set, get) => ({
         break
       case 'updated':
         void get().refreshChats()
+        void get().refreshPalace()
         if (get().view === 'projects') void get().refreshProjects()
         break
     }

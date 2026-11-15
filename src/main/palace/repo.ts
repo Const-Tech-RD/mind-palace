@@ -153,16 +153,20 @@ export function createPalaceRepo(db: Db) {
       db.delete(projects).where(eq(projects.id, projectId)).run()
     },
 
-    /** Moves `last_activity_at` forward on every tracked project the chat belongs to. */
-    touchProjectsOfChat(chatId: string, at: string): number {
+    /**
+     * Moves `last_activity_at` forward on every tracked project the chat
+     * belongs to and restarts their reminder cadence. Returns the project ids.
+     */
+    touchProjectsOfChat(chatId: string, at: string): string[] {
       const ids = db
         .select({ id: projectChats.projectId })
         .from(projectChats)
         .where(eq(projectChats.chatId, chatId))
         .all()
         .map((r) => r.id)
-      if (ids.length === 0) return 0
-      return db.update(projects).set({ lastActivityAt: at }).where(inArray(projects.id, ids)).run().changes
+      if (ids.length === 0) return []
+      db.update(projects).set({ lastActivityAt: at, remindersSent: 0 }).where(inArray(projects.id, ids)).run()
+      return ids
     },
 
     /** True when the room already has a counted completion on that local day. */

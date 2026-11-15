@@ -8,6 +8,10 @@ export interface ProjectServiceDeps {
   /** IANA timezone used for the one-completion-per-day rule. */
   timeZone: () => string
   onChanged: (chatId: string) => void
+  /** Called after a project action succeeds (the reminders service listens). */
+  afterAction?: (projectId: string, action: ProjectAction) => void
+  /** Called when a linked chat gets a new message. */
+  afterActivity?: (projectId: string) => void
   now?: () => Date
 }
 
@@ -91,6 +95,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
           repo.removeCompletions(projectId)
         }
       })
+      deps.afterAction?.(projectId, action)
       return repo.project(projectId)!
     },
 
@@ -104,7 +109,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
 
     /** Activity = a new message in a linked chat. */
     noteActivity(chatId: string): void {
-      repo.touchProjectsOfChat(chatId, now().toISOString())
+      for (const projectId of repo.touchProjectsOfChat(chatId, now().toISOString())) deps.afterActivity?.(projectId)
     }
   }
 }

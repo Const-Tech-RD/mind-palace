@@ -285,7 +285,7 @@ function memoryPalace() {
     touchProjectsOfChat(chatId, at) {
       const linked = [...projects.values()].filter((p) => p.chatIds.includes(chatId))
       for (const p of linked) p.lastActivityAt = at
-      return linked.length
+      return linked.map((p) => p.id)
     },
     hasCountedCompletion: (roomId, localDay) => completions.some((c) => c.roomId === roomId && c.localDay === localDay && c.counted),
     addCompletion(input) {

@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { ChatView } from './components/ChatView'
 import { Login } from './components/Login'
+import { PalaceView } from './components/PalaceView'
 import { ProjectsView } from './components/ProjectsView'
+import { RemindersView } from './components/RemindersView'
 import { Sidebar } from './components/Sidebar'
 import { useStore } from './store'
 
@@ -12,13 +14,18 @@ export function App() {
   const init = useStore((s) => s.init)
   const checkAuth = useStore((s) => s.checkAuth)
   const handleEvent = useStore((s) => s.handleEvent)
+  const handleAppEvent = useStore((s) => s.handleAppEvent)
   const view = useStore((s) => s.view)
 
   useEffect(() => {
-    const unsubscribe = window.mindPalace.onChatEvent(handleEvent)
+    const offChat = window.mindPalace.onChatEvent(handleEvent)
+    const offApp = window.mindPalace.onAppEvent(handleAppEvent)
     void init()
-    return unsubscribe
-  }, [init, handleEvent])
+    return () => {
+      offChat()
+      offApp()
+    }
+  }, [init, handleEvent, handleAppEvent])
 
   if (auth === null) {
     return (
@@ -32,7 +39,15 @@ export function App() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      {view === 'projects' ? <ProjectsView /> : <ChatView />}
+      {view === 'palace' ? (
+        <PalaceView />
+      ) : view === 'projects' ? (
+        <ProjectsView />
+      ) : view === 'reminders' ? (
+        <RemindersView />
+      ) : (
+        <ChatView />
+      )}
     </div>
   )
 }

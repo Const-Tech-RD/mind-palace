@@ -7,7 +7,9 @@
  * payload that drifts is a compile error on both sides.
  */
 import type { AuthState, ChatEvent, ChatMessage, ChatSummary } from './chat'
+import type { PalaceView } from './palace'
 import type { ProjectAction, ProjectSummary } from './projects'
+import type { ReminderItem, ReminderResponse } from './reminders'
 
 export interface IpcContract {
   ping: {
@@ -84,10 +86,45 @@ export interface IpcContract {
     request: { projectId: string; action: ProjectAction }
     response: ProjectSummary
   }
+  /** Every room's state from the progression engine, with what is new since it was last looked at. */
+  'palace:view': {
+    request: void
+    response: PalaceView
+  }
+  /** Marks a room as looked at: what it holds now is no longer "new". */
+  'palace:seen': {
+    request: { roomId: string }
+    response: { seen: true }
+  }
+  /** Reminders waiting for a reaction, newest first. */
+  'reminder:list': {
+    request: void
+    response: ReminderItem[]
+  }
+  /** Reacts to a reminder. Returns where to go for `open`. */
+  'reminder:respond': {
+    request: { reminderId: string; response: ReminderResponse }
+    response: { projectId: string; chatId: string | null }
+  }
+  /** Reads, or with `enabled` sets, whether system notifications are shown for reminders. */
+  'reminder:notifications': {
+    request: { enabled?: boolean }
+    response: { enabled: boolean }
+  }
 }
 
 /** One-way channel, main to renderer, carrying `ChatEvent`s. */
 export const CHAT_EVENT_CHANNEL = 'chat:event'
+
+/** Things the main process tells the renderer that are not about one chat's answer. */
+export type AppEvent =
+  /** The reminder inbox changed. */
+  | { type: 'reminders_changed' }
+  /** A notification was clicked: show this project's chat (or the projects panel if it has none). */
+  | { type: 'open_project'; projectId: string; chatId: string | null }
+
+/** One-way channel, main to renderer, carrying `AppEvent`s. */
+export const APP_EVENT_CHANNEL = 'app:event'
 
 export interface AppStatus {
   version: string
@@ -120,7 +157,12 @@ export const IPC_CHANNELS = [
   'project:list',
   'project:track',
   'project:dismiss',
-  'project:action'
+  'project:action',
+  'palace:view',
+  'palace:seen',
+  'reminder:list',
+  'reminder:respond',
+  'reminder:notifications'
 ] as const satisfies readonly IpcChannel[]
 
 /** What the preload puts on `window.mindPalace`. */
@@ -133,6 +175,7 @@ export interface MindPalaceApi {
   status(): Promise<AppStatus>
   /** Subscribes to chat events; returns the function that unsubscribes. */
   onChatEvent(listener: (event: ChatEvent) => void): () => void
+  onAppEvent(listener: (event: AppEvent) => void): () => void
 }
 
 export const API_KEY = 'mindPalace'

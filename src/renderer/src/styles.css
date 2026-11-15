@@ -91,3 +91,41 @@ body {
   padding: 0.3em 0.6em;
   text-align: left;
 }
+
+/* Palace: a newly unlocked item or shell tier announces itself once. */
+@keyframes palace-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes palace-reveal {
+  from {
+    filter: grayscale(1) brightness(0.45);
+  }
+}
+.palace-new {
+  animation: palace-pop 0.6s ease-out both;
+}
+.palace-room-image {
+  transition: filter 0.8s ease;
+}
+.palace-room-image.revealing {
+  animation: palace-reveal 1.6s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .palace-new,
+  .palace-room-image.revealing {
+    animation: none;
+  }
+  .palace-room-image {
+    transition: none;
+  }
+}
