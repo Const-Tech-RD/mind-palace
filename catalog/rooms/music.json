@@ -1,0 +1,27 @@
+{
+  "id": "music",
+  "name": "Music studio",
+  "belongs": "Music theory, songwriting, instruments and practice, recording, mixing and mastering, DAWs and plugins as a user, audio gear, and music recommendations or analysis.",
+  "not_here": "Writing code for an audio plugin or music app (Coding room). Album art, posters or music video visuals (Art workshop). Concert tickets or travel (Mail room).",
+  "examples": [
+    "What chords fit over a ii-V-I in B flat?",
+    "How do I stop my vocal recordings from clipping?",
+    "Suggest a practice routine for fingerstyle guitar",
+    "Explain sidechain compression like I'm new to mixing"
+  ],
+  "accent": "#f0abfc",
+  "signature": [
+    { "n": 1, "unlock": "start",  "item": "music_mic",      "slot": "beside_seat" },
+    { "n": 2, "unlock": "streak", "item": "music_speakers", "slots": ["desk_left", "desk_right"] },
+    { "n": 3, "unlock": "streak", "item": "music_keyboard", "slot": "floor_right" },
+    { "n": 4, "unlock": "streak", "item": "music_guitar",   "slot": "corner_right" },
+    { "n": 5, "unlock": "streak", "item": "music_mixer",    "slot": "desk_center" }
+  ],
+  "assets": {
+    "music_mic":      { "layer": "floor_item",   "footprint": [1, 1], "height": 2, "note": "Microphone on a floor stand" },
+    "music_speakers": { "layer": "surface_item", "footprint": [1, 1], "height": 1, "note": "One studio monitor; placed twice" },
+    "music_keyboard": { "layer": "floor_item",   "footprint": [2, 1], "height": 1, "note": "Piano keyboard on a stand" },
+    "music_guitar":   { "layer": "floor_item",   "footprint": [1, 1], "height": 1.5, "note": "Guitar on a stand" },
+    "music_mixer":    { "layer": "surface_item", "footprint": [1, 1], "height": 0.5, "note": "Small mixing console" }
+  }
+}

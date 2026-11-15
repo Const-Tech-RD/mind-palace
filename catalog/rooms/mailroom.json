@@ -1,0 +1,25 @@
+{
+  "id": "mailroom",
+  "name": "Mail room",
+  "belongs": "Every chat that does not clearly fit another room.",
+  "not_here": "",
+  "examples": [
+    "What should I cook with chicken thighs and rice?",
+    "Compare two robot vacuums",
+    "Help me word an email to my landlord"
+  ],
+  "accent": "#a9adc6",
+  "signature": [
+    { "n": 1, "unlock": "start",  "item": "cardboard_box", "slot": "corner_right" },
+    { "n": 2, "unlock": "streak", "item": "cardboard_box", "slot": "beside_seat" },
+    { "n": 3, "unlock": "streak", "item": "mail_sorting_shelf", "slot": "wall_right_b" },
+    { "n": 4, "unlock": "streak", "item": "mail_parcel_stack", "slot": "floor_right" },
+    { "n": 5, "unlock": "streak", "item": "mail_letter_tray", "slot": "desk_center" }
+  ],
+  "assets": {
+    "cardboard_box":      { "layer": "floor_item", "footprint": [1, 1], "height": 1, "note": "Shared extra, already in the asset spec" },
+    "mail_sorting_shelf": { "layer": "wall_item",  "width": 2, "height": 1.5, "note": "Pigeonhole shelf with letters" },
+    "mail_parcel_stack":  { "layer": "floor_item", "footprint": [2, 1], "height": 1.5, "note": "Stack of parcels" },
+    "mail_letter_tray":          { "layer": "surface_item", "footprint": [1, 1], "height": 0.5, "note": "Letter tray with envelopes" }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "coding",
+  "name": "Coding room",
+  "belongs": "Programming, debugging, software architecture, databases, APIs, dev tools, deployment, and building or fixing any software or script.",
+  "not_here": "Music production software used to make music (Music studio). The visual look of a design, illustration or 3D model (Art workshop). Buying hardware, career or pricing questions (Mail room).",
+  "examples": [
+    "Why does my React effect run twice in development?",
+    "Design a MySQL schema for recurring invoices",
+    "Write a Spring Boot endpoint that streams a CSV export",
+    "How do I set up a Cloudflare Tunnel for a local service?"
+  ],
+  "accent": "#5eead4",
+  "signature": [
+    { "n": 1, "unlock": "start",  "item": "coding_laptop",     "slot": "desk_center" },
+    { "n": 2, "unlock": "streak", "item": "coding_monitor",    "slot": "desk_center", "replaces": "coding_laptop" },
+    { "n": 3, "unlock": "streak", "item": "coding_whiteboard", "slot": "wall_right_b" },
+    { "n": 4, "unlock": "streak", "item": "coding_rack",       "slot": "corner_right" },
+    { "n": 5, "unlock": "streak", "item": "coding_arcade",     "slot": "floor_right" }
+  ],
+  "assets": {
+    "coding_laptop":     { "layer": "surface_item", "footprint": [1, 1], "height": 1 },
+    "coding_monitor":    { "layer": "surface_item", "footprint": [1, 1], "height": 1 },
+    "coding_whiteboard": { "layer": "wall_item",    "width": 2, "height": 1.5 },
+    "coding_rack":       { "layer": "floor_item",   "footprint": [1, 1], "height": 2 },
+    "coding_arcade":     { "layer": "floor_item",   "footprint": [1, 1], "height": 2 }
+  }
+}

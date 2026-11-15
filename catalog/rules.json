@@ -1,0 +1,74 @@
+{
+  "version": "0.1",
+  "classification": {
+    "rooms_per_chat": 1,
+    "fallback_room": "mailroom"
+  },
+  "day_boundary": "local_midnight",
+  "tracks": {
+    "streak": {
+      "description": "Consecutive days with at least one chat in this room.",
+      "scope": "per_room",
+      "milestones": [2, 3, 5, 8, 13, 21, 34],
+      "on_break": "reset_counter_keep_items",
+      "next_unlock": "lowest milestone this room has not reached yet"
+    },
+    "goals": {
+      "description": "Goals (tracked projects) marked completed in this room.",
+      "scope": "per_room",
+      "milestones": [2, 3, 5, 8, 13],
+      "max_counted_per_day": 1,
+      "every_completion": { "item": "trophy", "slot": "trophy_shelf", "max": 5 }
+    }
+  },
+  "base_ladder": {
+    "start": [
+      { "item": "base_desk", "slot": "desk" },
+      { "item": "base_crate", "slot": "seat" }
+    ],
+    "streak": [
+      { "at": 2, "item": "base_chair", "slot": "seat", "replaces": "base_crate" },
+      { "at": 3, "signature": 2 },
+      { "at": 5, "shell": "painted" },
+      { "at": 5, "item": "base_rug", "slot": "rug" },
+      { "at": 8, "signature": 3 },
+      { "at": 13, "item": "base_bookshelf_low", "slot": "floor_left" },
+      { "at": 13, "item": "base_plant_small", "slot": "plant" },
+      { "at": 21, "shell": "finished" },
+      { "at": 21, "signature": 4 },
+      { "at": 34, "signature": 5 }
+    ],
+    "goals": [
+      { "at": 1, "item": "trophy_shelf", "slot": "wall_left_b" },
+      { "at": 2, "item": "base_poster", "slot": "wall_left_a" },
+      { "at": 3, "item": "base_floor_lamp", "slot": "lamp" },
+      { "at": 5, "item": "base_couch", "slot": "couch" },
+      { "at": 8, "item": "window", "slot": "wall_right_a" },
+      { "at": 13, "item": "base_plant_large", "slot": "plant", "replaces": "base_plant_small" }
+    ]
+  },
+  "layout": {
+    "floor": [8, 8],
+    "note": "Tile coordinates are [x, y] of the item's back corner. x runs along the right wall, y along the left wall. Same layout for every room.",
+    "slots": {
+      "desk":         { "layer": "floor_item",   "tile": [2, 0], "footprint": [3, 1] },
+      "desk_left":    { "layer": "surface_item", "tile": [2, 0], "host": "desk" },
+      "desk_center":  { "layer": "surface_item", "tile": [3, 0], "host": "desk" },
+      "desk_right":   { "layer": "surface_item", "tile": [4, 0], "host": "desk" },
+      "seat":         { "layer": "floor_item",   "tile": [3, 1], "footprint": [1, 1] },
+      "beside_seat":  { "layer": "floor_item",   "tile": [5, 1], "footprint": [1, 1] },
+      "corner_right": { "layer": "floor_item",   "tile": [6, 0], "footprint": [1, 1] },
+      "floor_right":  { "layer": "floor_item",   "tile": [5, 4], "footprint": [2, 1] },
+      "floor_left":   { "layer": "floor_item",   "tile": [0, 1], "footprint": [1, 2] },
+      "plant":        { "layer": "floor_item",   "tile": [0, 3], "footprint": [1, 1] },
+      "couch":        { "layer": "floor_item",   "tile": [0, 4], "footprint": [1, 3] },
+      "lamp":         { "layer": "floor_item",   "tile": [0, 7], "footprint": [1, 1] },
+      "rug":          { "layer": "rug",          "tile": [2, 2], "footprint": [3, 3] },
+      "wall_right_a": { "layer": "wall_item", "wall": "right", "from_tile": 2, "width": 2, "bottom_z": 2 },
+      "wall_right_b": { "layer": "wall_item", "wall": "right", "from_tile": 5, "width": 2, "bottom_z": 2 },
+      "wall_left_a":  { "layer": "wall_item", "wall": "left",  "from_tile": 1, "width": 1, "bottom_z": 2 },
+      "wall_left_b":  { "layer": "wall_item", "wall": "left",  "from_tile": 4, "width": 2, "bottom_z": 2 },
+      "trophy_shelf": { "layer": "surface_item", "host": "wall_left_b", "capacity": 5 }
+    }
+  }
+}

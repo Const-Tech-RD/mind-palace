@@ -1,0 +1,181 @@
+/**
+ * Room classification: the prompt, the shape of the model's answer, and the
+ * rules for what to do with it. Pure; the model call lives in src/main/chat/claude.ts.
+ */
+import { z } from 'zod'
+
+export const CONFIDENCE_THRESHOLD = 0.6
+/** How long a chat must be quiet before it is classified once more. */
+export const QUIET_MINUTES = 30
+
+export interface ClassifierRoom {
+  id: string
+  name: string
+  belongs: string
+  not_here: string
+  examples: string[]
+}
+
+export interface OpenProject {
+  id: string
+  title: string
+  roomId: string
+}
+
+export interface ClassifierMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+/** What the model is asked to return. */
+export const classificationSchema = z.object({
+  room_id: z.string(),
+  confidence: z.number().min(0).max(1),
+  is_project: z.boolean(),
+  project_title: z.string().nullable(),
+  next_step: z.string().nullable(),
+  /** Id of an open project this chat continues, when it clearly does. */
+  existing_project_id: z.string().nullable()
+})
+export type RawClassification = z.infer<typeof classificationSchema>
+
+/** JSON Schema for the same shape, as the SDK's structured output wants it. */
+export const CLASSIFICATION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['room_id', 'confidence', 'is_project', 'project_title', 'next_step', 'existing_project_id'],
+  properties: {
+    room_id: { type: 'string' },
+    confidence: { type: 'number' },
+    is_project: { type: 'boolean' },
+    project_title: { type: ['string', 'null'] },
+    next_step: { type: ['string', 'null'] },
+    existing_project_id: { type: ['string', 'null'] }
+  }
+} as const
+
+export const CLASSIFIER_SYSTEM_PROMPT = [
+  'You sort chats from a personal chat app into rooms, and you spot chats that are the start of a project.',
+  'You are given the rooms and the chat so far. Answer with the JSON object only.',
+  'A project is something the person intends to build, make, plan or finish over more than one sitting (an app, a song, a logo, a trip plan). A single question, a lookup or a piece of advice is not a project.',
+  'Be conservative about projects: a wrong project suggestion is more annoying than a missed one.'
+].join(' ')
+
+const MAX_MESSAGE_CHARS = 2000
+const clip = (text: string): string =>
+  text.length <= MAX_MESSAGE_CHARS ? text : `${text.slice(0, MAX_MESSAGE_CHARS)} […]`
+
+/**
+ * The classifier prompt, built from the catalog text so that editing a room's
+ * `belongs`, `not_here` or `examples` changes the classifier without code.
+ */
+export function buildClassifierPrompt(input: {
+  rooms: ClassifierRoom[]
+  fallbackRoomId: string
+  messages: ClassifierMessage[]
+  openProjects: OpenProject[]
+}): string {
+  const rooms = input.rooms
+    .map((room) => {
+      const lines = [`### ${room.id} — ${room.name}`, `Belongs here: ${room.belongs}`]
+      if (room.not_here.trim()) lines.push(`Not here: ${room.not_here}`)
+      lines.push('Examples:', ...room.examples.map((example) => `- ${example}`))
+      return lines.join('\n')
+    })
+    .join('\n\n')
+
+  const projects =
+    input.openProjects.length === 0
+      ? 'None.'
+      : input.openProjects.map((p) => `- id "${p.id}" · room ${p.roomId} · ${p.title}`).join('\n')
+
+  const chat = input.messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => `${m.role === 'user' ? 'USER' : 'ASSISTANT'}: ${clip(m.content)}`)
+    .join('\n\n')
+
+  return [
+    '## Rooms',
+    rooms,
+    '## Open projects',
+    projects,
+    '## Chat so far',
+    chat,
+    '## Your answer',
+    [
+      `- room_id: the id of the one room this chat belongs in. If no room clearly fits, use "${input.fallbackRoomId}".`,
+      '- confidence: 0 to 1, how sure you are of the room.',
+      '- is_project: true only if this chat is the start or continuation of a project as defined above.',
+      '- project_title: a short name for the project (3 to 6 words), or null when is_project is false.',
+      '- next_step: one small concrete next step for the project, or null when is_project is false.',
+      '- existing_project_id: the id of an open project from the list that this chat clearly continues, otherwise null. Never invent an id.'
+    ].join('\n')
+  ].join('\n\n')
+}
+
+export interface Classification {
+  roomId: string
+  confidence: number
+  /** True when the room came from the fallback rule rather than the model's own pick. */
+  fellBack: boolean
+  project:
+    | { kind: 'none' }
+    | { kind: 'new'; title: string; nextStep: string | null }
+    | { kind: 'existing'; projectId: string }
+}
+
+/**
+ * Applies the rules to the model's answer:
+ *  - an unknown room, or confidence under the threshold, goes to the fallback room;
+ *  - a project needs a title; an existing project must be open and in the chosen room.
+ */
+export function interpretClassification(
+  raw: RawClassification,
+  context: { roomIds: readonly string[]; fallbackRoomId: string; openProjects: readonly OpenProject[] }
+): Classification {
+  const known = context.roomIds.includes(raw.room_id)
+  const confident = raw.confidence >= CONFIDENCE_THRESHOLD
+  const fellBack = !known || !confident
+  const roomId = fellBack ? context.fallbackRoomId : raw.room_id
+
+  let project: Classification['project'] = { kind: 'none' }
+  if (raw.is_project) {
+    const existing = context.openProjects.find((p) => p.id === raw.existing_project_id)
+    const title = raw.project_title?.trim() ?? ''
+    if (existing && existing.roomId === roomId) project = { kind: 'existing', projectId: existing.id }
+    else if (title !== '') project = { kind: 'new', title, nextStep: raw.next_step?.trim() || null }
+  }
+  return { roomId, confidence: raw.confidence, fellBack, project }
+}
+
+export interface ChatClassificationState {
+  roomId: string | null
+  roomSource: 'model' | 'user' | null
+}
+
+/**
+ * Whether a classification may change the chat's room.
+ *  - A chat the user moved is never touched.
+ *  - A first classification always places the chat (in the fallback room if unsure).
+ *  - A later one only moves it when the model itself was confident.
+ */
+export function roomChange(chat: ChatClassificationState, result: Classification): string | null {
+  if (chat.roomSource === 'user') return null
+  if (chat.roomId === null) return result.roomId
+  if (result.fellBack || result.roomId === chat.roomId) return null
+  return result.roomId
+}
+
+/**
+ * Whether a chat is due for its quiet re-check: silent for at least
+ * `QUIET_MINUTES`, and not classified since its last message.
+ */
+export function dueForQuietCheck(
+  chat: { lastMessageAt: string | null; classifiedAt: string | null },
+  now: Date
+): boolean {
+  if (chat.lastMessageAt === null) return false
+  const last = Date.parse(chat.lastMessageAt)
+  if (Number.isNaN(last) || now.getTime() - last < QUIET_MINUTES * 60_000) return false
+  return chat.classifiedAt === null || Date.parse(chat.classifiedAt) < last
+}
