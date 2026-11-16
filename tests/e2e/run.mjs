@@ -63,6 +63,19 @@ async function launch(userData, extraEnv = {}) {
   return { app, page }
 }
 
+/** Waits for a line in the activity strip, opening the strip when the line is not the newest. */
+async function activityLine(page, pattern, timeout = 10_000) {
+  const strip = page.locator('footer[aria-label="Activity"]')
+  await until(
+    async () => {
+      const more = strip.getByRole('button', { name: /more$/ })
+      if (await more.count()) await more.click()
+      return (await strip.getByText(pattern).count()) > 0
+    },
+    { timeout, every: 300, what: `the activity line ${pattern}` }
+  )
+}
+
 const dbPath = (userData) => join(userData, 'mind-palace.sqlite')
 const sql = (userData, statements) =>
   execFileSync('sqlite3', [dbPath(userData), `pragma foreign_keys=on; ${statements}`], { encoding: 'utf8' }).trim()
@@ -234,8 +247,14 @@ async function sessionChat() {
         null,
         { timeout: 120_000 }
       )
-      const mid = await shot(page, 'C2-streaming', 'C2 · While answering: partial text, "Writing…" and the Stop button')
+      // The chat has no room yet, so the sorting room's helper is the one working, on the map beside the chat.
+      const helperState = await page.locator('[data-agent="mailroom"]').first().getAttribute('data-state')
+      expect(helperState === 'writing', `the Mail room helper was ${helperState} while the answer was being written`)
+      const mid = await shot(page, 'C2-streaming', 'C2 · While answering: partial text, "Writing…", the Stop button, and the Mail room helper at work on the map')
       await answerFinished(page)
+      await activityLine(page, /^Claude answered in /)
+      const after = await page.locator('[data-agent="mailroom"]').first().getAttribute('data-state')
+      expect(after === 'done' || after === 'idle', `the Mail room helper was ${after} after the answer`)
       const bubble = page.locator('.markdown').last()
       expect((await bubble.locator('pre code').count()) >= 1, 'the answer has no code block')
       expect((await bubble.locator('li').count()) >= 2, 'the answer has no bullet list')
@@ -265,8 +284,10 @@ async function sessionChat() {
       expect(state === 'coding|model', `room and source were: ${state}`)
       await page.locator('nav[aria-label="Chats"] h2', { hasText: /coding room/i }).waitFor({ timeout: 15_000 })
       await until(async () => (await page.getByTestId('chat-panel').locator('header select').inputValue()) === 'coding', { timeout: 5_000, what: 'the chat header to show the Coding room' })
+      await activityLine(page, /was filed in the Coding room$/)
+      await page.locator('figcaption', { hasText: /room$/ }).waitFor({ timeout: 5_000 }) // the palace beside the chat followed it into its room
       return {
-        observed: 'Placed in the Coding room by the model after the second user message.',
+        observed: 'Placed in the Coding room by the model after the second user message; the activity strip says so and the palace shows that room.',
         screenshots: [await shot(page, 'R1-classified', 'R1 · After the second message: Coding room badge and sidebar group')]
       }
     }
@@ -928,7 +949,7 @@ async function sessionPalace() {
   const doneProject = (id, title, room, chatId, dayOffset) =>
     `insert into projects (id, title, room_id, origin_chat_id, state, last_activity_at, created_at, closed_at) values (${q(id)}, ${q(title)}, ${q(room)}, ${q(chatId)}, 'done', ${q(daysAgo(dayOffset))}, ${q(daysAgo(10))}, ${q(daysAgo(dayOffset))});` +
     `insert into project_chats (project_id, chat_id) values (${q(id)}, ${q(chatId)});` +
-    `insert into goal_completions (id, project_id, room_id, local_day, counted) values (${q(`g-${id}`)}, ${q(id)}, ${q(room)}, ${q(localDay(dayOffset))}, 1);`
+    `insert into goal_completions (id, project_id, room_id, local_day) values (${q(`g-${id}`)}, ${q(id)}, ${q(room)}, ${q(localDay(dayOffset))});`
 
   sql(
     userData,
@@ -948,40 +969,22 @@ async function sessionPalace() {
   const roomTab = (name) => page.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name })
   const bar = (name) => page.getByRole('progressbar', { name })
   const chips = () => page.getByTestId('room-furniture').locator('li').allInnerTexts()
-  /** Waits until the picture's fade between tiers and any "new" pop animation have finished. */
+  /** Waits until the canvas is up, the camera has had time to arrive and any "new" pop animation has finished. */
   const settled = async () => {
-    let last = ''
+    await page.locator('.palace-canvas[data-ready="true"]').waitFor({ timeout: 15_000 })
+    await page.waitForTimeout(1500)
     await until(
-      async () => {
-        const now = await page.evaluate(() => {
-          const img = document.querySelector('img.palace-room-image')
-          const running = document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity).length
-          return `${img ? getComputedStyle(img).filter : ''}|${running}`
-        })
-        const stable = now === last && now.endsWith('|0')
-        last = now
-        return stable
-      },
+      async () =>
+        page.evaluate(
+          () => document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity).length === 0
+        ),
       { timeout: 8_000, every: 300, what: 'the palace animations to finish' }
     )
   }
+  /** The shell tier the canvas is drawing for the room in view, from the floor model. */
+  const stageRoom = () => page.getByTestId('palace-stage').getAttribute('data-room')
 
-  /** Waits for the character's walk to end (his bobbing never ends, so animations are not counted). */
-  const settledHub = async () => {
-    let last = ''
-    await until(
-      async () => {
-        const now = await page.evaluate(() => {
-          const el = document.querySelector('.nato-walker')
-          return el ? `${el.getBoundingClientRect().left}|${el.getBoundingClientRect().top}` : ''
-        })
-        const stable = now !== '' && now === last
-        last = now
-        return stable
-      },
-      { timeout: 8_000, every: 400, what: 'the character to stop walking' }
-    )
-  }
+  const settledHub = settled
 
   await testCase(
     {
@@ -1031,8 +1034,8 @@ async function sessionPalace() {
       const items = (await chips()).map((t) => t.trim()).sort().join(', ')
       expect(items === 'Crate, Desk, Sketchbook', `furniture was: ${items}`)
       expect((await page.getByRole('img', { name: /trophies/ }).count()) === 0, 'a trophy shelf is shown')
-      const filter = await page.locator('img.palace-room-image').evaluate((el) => getComputedStyle(el).filter)
-      expect(filter.includes('grayscale'), `the picture filter was: ${filter}`)
+      expect((await stageRoom()) === 'art', `the stage was showing: ${await stageRoom()}`)
+      await page.locator('figcaption', { hasText: 'Bare room' }).waitFor({ timeout: 5_000 })
       await settled()
       return { screenshots: [await shot(page, 'V2-bare', 'V2 · A room nobody has used yet: bare, with only its starting furniture')] }
     }
@@ -1051,8 +1054,8 @@ async function sessionPalace() {
       const streak = `${await bar('Streak').getAttribute('aria-valuenow')}/${await bar('Streak').getAttribute('aria-valuemax')}`
       expect(streak === '21/34', `streak bar was ${streak}`)
       // The picture fades between tiers over 0.8s when switching rooms: wait for it to settle.
-      const filter = () => page.locator('img.palace-room-image').evaluate((el) => getComputedStyle(el).filter)
-      await until(async () => (await filter()) === 'none', { timeout: 5_000, every: 200, what: 'the picture to reach full colour' })
+      await page.locator('figcaption', { hasText: 'Finished room' }).waitFor({ timeout: 5_000 })
+      expect((await stageRoom()) === 'music', `the stage was showing: ${await stageRoom()}`)
       const items = (await chips()).map((t) => t.trim()).sort().join(', ')
       expect(items === 'Chair, Desk, Guitar, Keyboard, Low bookshelf, Mic, Rug, Small plant, Speakers, Speakers', `furniture was: ${items}`)
       return {
@@ -1120,8 +1123,8 @@ async function sessionPalace() {
       }
       const label = await stage.getByRole('button', { name: /^Music studio: 21-day streak/ }).count()
       expect(label === 1, 'the Music studio did not show its 21-day streak')
-      const flowing = await stage.locator('line.palace-path.flowing').count()
-      expect(flowing === 2, `${flowing} paths were lit for rooms used today`)
+      const flowing = await stage.locator('button.palace-wing[data-active-today="true"]').count()
+      expect(flowing === 2, `${flowing} rooms were marked as used today`)
       await settledHub()
       const s = await shot(page, 'V5-hub', 'V5 · The palace hub: four rooms around the atrium, Nato at the room last worked in, shortcuts in the centre')
       await stage.getByRole('button', { name: /^Coding room:/ }).click()

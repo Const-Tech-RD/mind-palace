@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { AuthState, ChatEvent, ChatMessage, ChatSummary } from '@shared/chat'
+import { addActivity, chatChanges, SORTING_ROOM, type ActivityItem, type ActivityKind } from '@shared/agents'
+import { titleFromMessage, type AuthState, type ChatEvent, type ChatMessage, type ChatSummary } from '@shared/chat'
 import type { AppEvent, AppStatus } from '@shared/ipc'
 import type { PalaceView } from '@shared/palace'
 import type { ProjectAction, ProjectSummary } from '@shared/projects'
@@ -49,6 +50,13 @@ interface State {
   appError: string | null
   /** True between sending the first message of a new chat and learning its id. */
   startingChat: boolean
+  /** What just happened, newest first. Kept only while the app is open. */
+  activity: ActivityItem[]
+  /** Room -> the chat whose answer just ended there; cleared a few seconds later. */
+  finished: Record<string, string>
+  /** Chats on their way from the sorting room to the room they were filed in. */
+  transfers: Array<{ id: number; to: string }>
+  endTransfer(id: number): void
 
   init(): Promise<void>
   checkAuth(): Promise<void>
@@ -88,6 +96,10 @@ const describe = (error: unknown): string => {
   // Electron prefixes errors thrown in an IPC handler; keep only the message.
   return text.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
+
+/** How long a helper keeps saying "Done" after an answer ends. */
+const DONE_MS = 5000
+let transferId = 0
 
 const RAIL_KEY = 'mind-palace.rail-open'
 const WIDE_KEY = 'mind-palace.chat-wide'
@@ -132,6 +144,13 @@ export const useStore = create<State>((set, get) => ({
   errors: {},
   appError: null,
   startingChat: false,
+  activity: [],
+  finished: {},
+  transfers: [],
+
+  endTransfer(id) {
+    set((s) => ({ transfers: s.transfers.filter((t) => t.id !== id) }))
+  },
 
   async init() {
     try {
@@ -383,6 +402,14 @@ export const useStore = create<State>((set, get) => ({
 
   handleEvent(event) {
     const { chatId } = event
+    /** The room a chat's helper works in: its own, or the sorting room until it has one. */
+    const roomOf = (): string => {
+      const roomId = get().chats.find((c) => c.id === chatId)?.roomId ?? null
+      return roomId !== null && (get().palace?.rooms.some((r) => r.id === roomId) ?? false) ? roomId : SORTING_ROOM
+    }
+    const log = (kind: ActivityKind, text: string, roomId: string | null = roomOf()): void =>
+      set((s) => ({ activity: addActivity(s.activity, { at: new Date().toISOString(), kind, text, chatId, roomId }) }))
+    const titleOf = (): string => get().chats.find((c) => c.id === chatId)?.title || 'New chat'
     switch (event.type) {
       case 'started':
         set((s) => ({
@@ -390,8 +417,10 @@ export const useStore = create<State>((set, get) => ({
           activeChatId: s.activeChatId === null && s.startingChat ? chatId : s.activeChatId,
           messages: { ...s.messages, [chatId]: [...(s.messages[chatId] ?? []), event.userMessage] },
           streaming: { ...s.streaming, [chatId]: { text: '', searching: null } },
-          errors: without(s.errors, chatId)
+          errors: without(s.errors, chatId),
+          finished: without(s.finished, roomOf())
         }))
+        log('asked', `You asked: “${titleFromMessage(event.userMessage.content, 48)}”`)
         void get().refreshChats()
         break
       case 'delta':
@@ -403,6 +432,7 @@ export const useStore = create<State>((set, get) => ({
         }))
         break
       case 'searching':
+        log('searching', `Searching the web: ${event.query}`)
         set((s) => ({
           streaming: { ...s.streaming, [chatId]: { text: s.streaming[chatId]?.text ?? '', searching: event.query } }
         }))
@@ -415,6 +445,17 @@ export const useStore = create<State>((set, get) => ({
             ? { ...s.messages, [chatId]: [...(s.messages[chatId] ?? []), event.message] }
             : s.messages
         }))
+        {
+          const roomId = roomOf()
+          log(event.stopped ? 'stopped' : 'answered', event.stopped ? `You stopped the answer in “${titleOf()}”` : `Claude answered in “${titleOf()}”`)
+          if (!event.stopped) {
+            set((s) => ({ finished: { ...s.finished, [roomId]: chatId } }))
+            window.setTimeout(
+              () => set((s) => (s.finished[roomId] === chatId ? { finished: without(s.finished, roomId) } : {})),
+              DONE_MS
+            )
+          }
+        }
         void get().refreshChats()
         void get().refreshPalace()
         break
@@ -424,11 +465,21 @@ export const useStore = create<State>((set, get) => ({
           errors: { ...s.errors, [chatId]: event.message },
           auth: event.auth ?? s.auth
         }))
+        log('error', `The answer in “${titleOf()}” failed`)
         break
-      case 'updated':
+      case 'updated': {
+        const before = get().chats.find((c) => c.id === chatId)
         void get()
           .refreshChats()
           .then(() => {
+            const after = get().chats.find((c) => c.id === chatId)
+            const rooms = get().status?.rooms ?? []
+            for (const change of chatChanges(before, after, (id) => rooms.find((r) => r.id === id)?.name)) {
+              log(change.kind, change.text, after?.roomId ?? null)
+              // A scroll travels from the sorting room to the chat's new room.
+              const to = change.movedTo
+              if (to && to !== SORTING_ROOM) set((s) => ({ transfers: [...s.transfers, { id: ++transferId, to }] }))
+            }
             // The open chat was filed or moved: the palace behind it follows.
             const s = get()
             const roomId = s.chats.find((c) => c.id === chatId)?.roomId ?? null
@@ -439,6 +490,7 @@ export const useStore = create<State>((set, get) => ({
         void get().refreshPalace()
         if (get().view === 'projects') void get().refreshProjects()
         break
+      }
     }
   }
 }))

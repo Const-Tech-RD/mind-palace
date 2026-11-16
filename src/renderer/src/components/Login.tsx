@@ -31,7 +31,7 @@ export function Login({ auth, onRetry }: { auth: AuthState; onRetry: () => Promi
         type="button"
         onClick={() => void retry()}
         disabled={checking}
-        className="self-start rounded-md bg-paper px-4 py-2 text-sm font-medium text-ink hover:bg-white disabled:opacity-60"
+        className="self-start rounded-md bg-gold px-4 py-2 text-sm font-medium text-ink hover:bg-brass-light disabled:opacity-60"
       >
         {checking ? 'Checking…' : rejected ? 'Back to the chat' : 'I have signed in'}
       </button>

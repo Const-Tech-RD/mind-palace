@@ -23,7 +23,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="min-w-0 flex-1 truncate font-medium">{project.title}</h3>
         {room && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs">
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-paper/10 px-2.5 py-0.5 text-xs">
             <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
             {room.name}
           </span>
@@ -48,8 +48,8 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
             onClick={() => void projectAction(project.id, action)}
             className={`rounded-md px-3 py-1 text-sm ${
               action === 'done' || action === 'reopen'
-                ? 'bg-paper font-medium text-ink hover:bg-white'
-                : 'bg-white/10 text-paper hover:bg-white/20'
+                ? 'bg-gold font-medium text-ink hover:bg-brass-light'
+                : 'bg-paper/10 text-paper hover:bg-paper/20'
             }`}
           >
             {PROJECT_ACTION_LABEL[action]}
@@ -59,7 +59,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
           <button
             type="button"
             onClick={() => void selectChat(project.chatIds[0]!)}
-            className="rounded-md px-3 py-1 text-sm text-paper/80 hover:bg-white/10"
+            className="rounded-md px-3 py-1 text-sm text-paper/80 hover:bg-paper/10"
           >
             Open chat
           </button>
@@ -83,7 +83,7 @@ export function ProjectsView() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center border-b border-white/10 px-5">
+      <header className="flex h-12 shrink-0 items-center border-b border-brass/25 px-5">
         <h1 className="text-sm font-medium">Projects</h1>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">

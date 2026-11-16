@@ -1,0 +1,30 @@
+{
+  "coding": {
+    "width": 1090,
+    "height": 821,
+    "anchorX": 517,
+    "anchorY": 304,
+    "scale": 2
+  },
+  "music": {
+    "width": 1087,
+    "height": 793,
+    "anchorX": 517,
+    "anchorY": 276,
+    "scale": 2
+  },
+  "mailroom": {
+    "width": 1055,
+    "height": 852,
+    "anchorX": 517,
+    "anchorY": 335,
+    "scale": 2
+  },
+  "art": {
+    "width": 1042,
+    "height": 869,
+    "anchorX": 517,
+    "anchorY": 352,
+    "scale": 2
+  }
+}
