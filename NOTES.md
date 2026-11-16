@@ -54,7 +54,7 @@ The plan's "Core logic" wins in every case.
    `art_pottery_wheel` are 1 x 1 but sit in `floor_right`, which is 2 x 1.
    Warning only; the renderer has to decide where in the slot they stand.
 
-8. **Base and shared items are not declared anywhere in the catalog.**
+8. ~~**Base and shared items are not declared anywhere in the catalog.**~~ Closed in phase 4: `catalog/items.json` declares them, and every slot has a `kind`.
    `base_*`, `trophy`, `trophy_shelf` and `window` appear in `rules.json` by
    name only; their layer, footprint and height exist only in the asset spec's
    tables. Signature items are checked against the slot's layer; these cannot

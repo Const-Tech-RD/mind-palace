@@ -42,23 +42,6 @@ export const WALL_LOW = 1
 /** The doorway in a low wall: these tiles along the wall are left open. */
 export const DOORWAY: readonly [number, number] = [3, 5]
 
-/** Heights, in units, of items the catalog does not describe yet (NOTES item 8). */
-const BASE_HEIGHT: Readonly<Record<string, number>> = {
-  base_desk: 1,
-  base_crate: 0.7,
-  base_chair: 1.5,
-  base_rug: 0.04,
-  base_bookshelf_low: 1.5,
-  base_plant_small: 1,
-  base_plant_large: 2,
-  base_floor_lamp: 2.5,
-  base_couch: 1,
-  base_poster: 1.4,
-  window: 1.6,
-  trophy_shelf: 0.25,
-  trophy: 0.45
-}
-
 export interface ScreenPoint {
   x: number
   y: number
@@ -137,7 +120,7 @@ type Slot = {
 }
 
 function heightOf(catalog: Catalog, roomId: string, item: string): number {
-  return catalog.rooms[roomId]?.assets[item]?.height ?? BASE_HEIGHT[item] ?? 1
+  return catalog.items[item]?.height ?? catalog.rooms[roomId]?.assets[item]?.height ?? 1
 }
 
 /** A wall slot's run along its wall, in room tiles. */
