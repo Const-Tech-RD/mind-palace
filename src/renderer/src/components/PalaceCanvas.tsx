@@ -8,6 +8,8 @@ import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type Flo
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
+import { darknessOf, FLICKER, flickerOn, LIGHTS_ON_MS, nextFlickerDelay } from '@shared/flicker'
+import type { DecayLevel } from '@shared/engine'
 import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
 
 /**
@@ -123,6 +125,54 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
   return cast
 }
 
+/** Small deterministic noise per room, so dust and cobwebs do not jump on every redraw. */
+function seeded(seed: string): () => number {
+  let h = 2166136261
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+  return () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0
+    return (h % 10000) / 10000
+  }
+}
+
+/** Dust on the floor from level 1, cobwebs in the back corners from level 2 (plan v2, Decay). */
+function drawDecay(layer: Container, room: FloorRoom): void {
+  if (room.decay < 1) return
+  const [ox, oy] = room.origin
+  const random = seeded(room.id)
+  const g = new Graphics()
+  for (let i = 0; i < 26 + room.decay * 10; i++) {
+    const at = iso(ox + 0.3 + random() * (ROOM_TILES - 0.6), oy + 0.3 + random() * (ROOM_TILES - 0.6))
+    g.ellipse(at.x, at.y, 2 + random() * 5, 1 + random() * 2.5).fill({ color: P.dust, alpha: 0.22 + random() * 0.18 })
+  }
+  if (room.decay >= 2) {
+    const tall = room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1
+    const corner = iso(ox, oy, tall)
+    const down = iso(ox, oy, tall - 1.1)
+    const right = iso(ox + 1.3, oy, tall)
+    const left = iso(ox, oy + 1.3, tall)
+    for (const side of [right, left]) {
+      g.moveTo(corner.x, corner.y).lineTo(side.x, side.y).lineTo(down.x, down.y).lineTo(corner.x, corner.y)
+      for (let k = 1; k <= 3; k++) {
+        const t = k / 4
+        g.moveTo(corner.x + (side.x - corner.x) * t, corner.y + (side.y - corner.y) * t).lineTo(corner.x + (down.x - corner.x) * t, corner.y + (down.y - corner.y) * t)
+      }
+    }
+    g.stroke({ color: P.cobweb, width: 1, alpha: 0.55 })
+  }
+  layer.addChild(g)
+}
+
+/** Greys the room from level 1 and dims it from level 3; `light` overrides the darkness (flicker, lights back on). */
+function decayFilter(level: DecayLevel, light?: number): ColorMatrixFilter | null {
+  const dark = light ?? darknessOf(level)
+  if (level === 0 && dark === 0) return null
+  const filter = new ColorMatrixFilter()
+  filter.saturate(level >= 3 ? -0.7 : level === 2 ? -0.55 : level === 1 ? -0.35 : 0, false)
+  if (dark > 0) filter.brightness(1 - dark, true)
+  return filter
+}
+
 /** A texture from a bundled image, through a plain <img> so no worker or fetch is involved. */
 async function loadTexture(url: string): Promise<Texture> {
   const image = new Image()
@@ -214,6 +264,8 @@ export function PalaceCanvas({
   const latest = useRef({ floor, focus, onPick, onLabels, agents })
   latest.current = { floor, focus, onPick, onLabels, agents }
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
+  const decayLevels = useRef(new Map<string, DecayLevel>())
+  const roomLayers = useRef(new Map<string, Container>())
 
   /** The camera that shows a room, or the whole floor, inside the stage. */
   const cameraFor = (roomId: string | null): Camera => {
@@ -391,6 +443,24 @@ export function PalaceCanvas({
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
       const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id)
+      drawDecay(layer, room)
+      const before = decayLevels.current.get(room.id)
+      decayLevels.current.set(room.id, room.decay)
+      const filter = decayFilter(room.decay)
+      if (filter) layer.filters = [filter]
+      roomLayers.current.set(room.id, layer)
+      if (before !== undefined && before >= 3 && room.decay < 3 && !reducedMotion) {
+        // Lights back on: the darkness lifts over a moment instead of vanishing.
+        const from = darknessOf(before)
+        const start = performance.now()
+        const step = (): void => {
+          const t = Math.min(1, (performance.now() - start) / LIGHTS_ON_MS)
+          layer.filters = [decayFilter(room.decay, from * (1 - t)) ?? new ColorMatrixFilter()]
+          if (t < 1 && !layer.destroyed) requestAnimationFrame(step)
+          else layer.filters = filter ? [filter] : []
+        }
+        requestAnimationFrame(step)
+      }
       const agent = agents[room.id]
       const spotTile = [room.helperSpots[0]![0] + 0.5, room.helperSpots[0]![1] + 0.5]
       const spot = iso(spotTile[0]!, spotTile[1]!)
@@ -413,6 +483,31 @@ export function PalaceCanvas({
       }
     }
   }, [ready, floor, hover, focus, agents])
+
+  // A mostly dark room's light flickers on now and then (never with reduced motion).
+  useEffect(() => {
+    if (!ready) return
+    const timers: number[] = []
+    for (const room of floor.rooms) {
+      if (!flickerOn(room.decay, reducedMotion)) continue
+      const schedule = (): void => {
+        timers.push(
+          window.setTimeout(() => {
+            const layer = roomLayers.current.get(room.id)
+            if (layer && !layer.destroyed) {
+              layer.filters = [decayFilter(room.decay, FLICKER.alpha)!]
+              timers.push(window.setTimeout(() => {
+                if (!layer.destroyed) layer.filters = [decayFilter(room.decay)!]
+              }, FLICKER.ms))
+            }
+            schedule()
+          }, nextFlickerDelay(Math.random))
+        )
+      }
+      schedule()
+    }
+    return () => timers.forEach((t) => window.clearTimeout(t))
+  }, [ready, floor, reducedMotion])
 
   // Zoom to the focused room, or back out to the whole palace.
   useEffect(() => {
