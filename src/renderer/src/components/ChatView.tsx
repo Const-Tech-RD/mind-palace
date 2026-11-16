@@ -79,6 +79,10 @@ export function ChatView() {
   const rooms = useStore((s) => s.status?.rooms)
   const moveChat = useStore((s) => s.moveChat)
   const answerSuggestion = useStore((s) => s.answerSuggestion)
+  const filingRoom = useStore((s) => s.status?.rooms.find((r) => r.id === s.newChatRoomId))
+  const closeChat = useStore((s) => s.closeChat)
+  const chatWide = useStore((s) => s.chatWide)
+  const toggleChatWide = useStore((s) => s.toggleChatWide)
 
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
@@ -104,6 +108,11 @@ export function ChatView() {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key === 'Escape' && draft === '' && !streaming) {
+      event.preventDefault()
+      closeChat()
+      return
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       submit()
@@ -115,21 +124,21 @@ export function ChatView() {
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-white/10 px-5">
-        <h1 className="truncate text-sm font-medium">{chat?.title || 'New chat'}</h1>
-        {room && (
+        <h1 className="min-w-0 truncate text-sm font-medium" title={chat?.title}>{chat?.title || 'New chat'}</h1>
+        {room && chatWide && (
           <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs">
             <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
             {room.name}
           </span>
         )}
         {chat?.project && (
-          <span className="shrink-0 truncate rounded-full border border-white/20 px-2.5 py-0.5 text-xs text-muted" title="Project">
+          <span className="max-w-[30%] shrink truncate rounded-full border border-white/20 px-2.5 py-0.5 text-xs text-muted" title="Project">
             {chat.project.title}
           </span>
         )}
         {chat && rooms && (
           <label className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted">
-            Move to room
+            <span className={chatWide ? '' : 'sr-only'}>Move to room</span>
             <select
               value={chat.roomId ?? ''}
               onChange={(e) => e.target.value && void moveChat(chat.id, e.target.value)}
@@ -144,13 +153,38 @@ export function ChatView() {
             </select>
           </label>
         )}
+        <div className={`flex shrink-0 items-center gap-1 ${chat && rooms ? '' : 'ml-auto'}`}>
+          <button
+            type="button"
+            onClick={toggleChatWide}
+            aria-pressed={chatWide}
+            title={chatWide ? 'Show the palace beside the chat' : 'Give the chat the whole window'}
+            aria-label={chatWide ? 'Show the palace beside the chat' : 'Give the chat the whole window'}
+            className="flex size-7 items-center justify-center rounded-md text-muted hover:bg-white/10 hover:text-paper"
+          >
+            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {chatWide ? <path d="M4 5h16v14H4zM13 5v14" /> : <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" />}
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={closeChat}
+            title="Close chat (Esc)"
+            aria-label="Close chat"
+            className="flex size-7 items-center justify-center rounded-md text-lg leading-none text-muted hover:bg-white/10 hover:text-paper"
+          >
+            ×
+          </button>
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-5 py-6">
           {empty && (
             <p className="mt-24 text-center text-sm text-muted">
-              Ask anything. Each chat will find its room once there is enough to go on.
+              {filingRoom && !chat
+                ? `This chat will be filed in the ${filingRoom.name}.`
+                : 'Ask anything. Each chat will find its room once there is enough to go on.'}
             </p>
           )}
           {messages.map((message) => (

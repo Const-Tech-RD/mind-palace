@@ -6,3 +6,9 @@ eval/
 *.log
 test-report/
 .DS_Store
+import/
+test-report.zip
+*.sqlite
+*.sqlite-*
+.env
+.env.*

@@ -1,13 +1,13 @@
 {
   "id": "art",
   "name": "Art workshop",
-  "belongs": "Drawing, painting, illustration, graphic and visual design, colour and composition, image prompts, 3D modelling and sculpting for looks, crafts and handmade projects.",
-  "not_here": "Implementing a design in code, or scripting a 3D tool (Coding room). Album or song work (Music studio). Buying supplies with no creative question attached (Mail room).",
+  "belongs": "Visual work judged by how it looks: graphic and brand design, logos, ad creatives and social visuals, image and video generation prompts, photo retouching and upscaling, video editing, UI and layout critique, illustration and drawing.",
+  "not_here": "Implementing a design in code or building a tool that generates visuals (Coding room). Ad copy, captions, budgets and campaign setup (Mail room). Compressing or downloading a file with no visual question (Mail room). Album or song work (Music studio).",
   "examples": [
-    "How do I shade a sphere with only three values?",
-    "Pick a colour palette for a cosy pixel-art room",
-    "Give me feedback on this logo's composition",
-    "What paints work on PLA figures?"
+    "These photos look flat and grey, make them brighter and sharper",
+    "Give me a prompt for a striking, modern redesign of this homepage",
+    "The generated clip looks fake, make the ad more dynamic and exciting",
+    "Here are my app's screens, what should I remove, add or improve?"
   ],
   "accent": "#fb923c",
   "signature": [

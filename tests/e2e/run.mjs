@@ -52,6 +52,14 @@ async function launch(userData, extraEnv = {}) {
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
   await page.getByRole('button', { name: 'New chat' }).or(page.getByRole('heading', { level: 1 })).first().waitFor({ timeout: 30_000 })
+  // The app opens on the palace with the rail collapsed. These cases were written
+  // against the chat list and the new-chat screen, so open both when signed in.
+  const showChats = page.getByRole('button', { name: 'Show chats' })
+  if (await showChats.count()) {
+    await showChats.click()
+    await page.locator('aside').getByRole('button', { name: 'New chat' }).click()
+    await page.getByLabel('Message', { exact: true }).waitFor({ timeout: 10_000 })
+  }
   return { app, page }
 }
 
@@ -256,7 +264,7 @@ async function sessionChat() {
       const state = sql(userData, 'select room_id, room_source from chats')
       expect(state === 'coding|model', `room and source were: ${state}`)
       await page.locator('nav[aria-label="Chats"] h2', { hasText: /coding room/i }).waitFor({ timeout: 15_000 })
-      await page.locator('header', { hasText: 'Coding room' }).waitFor({ timeout: 5_000 })
+      await until(async () => (await page.getByTestId('chat-panel').locator('header select').inputValue()) === 'coding', { timeout: 5_000, what: 'the chat header to show the Coding room' })
       return {
         observed: 'Placed in the Coding room by the model after the second user message.',
         screenshots: [await shot(page, 'R1-classified', 'R1 · After the second message: Coding room badge and sidebar group')]
@@ -671,7 +679,7 @@ async function sessionProjects() {
     async () => {
       await projectCard(page, 'CLI todo tool').getByRole('button', { name: 'Open chat' }).click()
       await page.locator('header h1', { hasText: 'A command-line todo tool' }).waitFor({ timeout: 10_000 })
-      await page.locator('header', { hasText: 'CLI todo tool' }).waitFor({ timeout: 5_000 })
+      await page.getByTestId('chat-panel').locator('header', { hasText: 'CLI todo tool' }).waitFor({ timeout: 5_000 })
     }
   )
 
@@ -922,7 +930,7 @@ async function sessionPalace() {
   const palaceButton = () => page.locator('aside').getByRole('button', { name: /^Palace/ })
   const roomTab = (name) => page.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name })
   const bar = (name) => page.getByRole('progressbar', { name })
-  const chips = () => page.locator('section', { hasText: 'In this room' }).locator('li').allInnerTexts()
+  const chips = () => page.getByTestId('room-furniture').locator('li').allInnerTexts()
   /** Waits until the picture's fade between tiers and any "new" pop animation have finished. */
   const settled = async () => {
     let last = ''
@@ -930,7 +938,7 @@ async function sessionPalace() {
       async () => {
         const now = await page.evaluate(() => {
           const img = document.querySelector('img.palace-room-image')
-          const running = document.getAnimations().filter((a) => a.playState === 'running').length
+          const running = document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity).length
           return `${img ? getComputedStyle(img).filter : ''}|${running}`
         })
         const stable = now === last && now.endsWith('|0')
@@ -938,6 +946,23 @@ async function sessionPalace() {
         return stable
       },
       { timeout: 8_000, every: 300, what: 'the palace animations to finish' }
+    )
+  }
+
+  /** Waits for the character's walk to end (his bobbing never ends, so animations are not counted). */
+  const settledHub = async () => {
+    let last = ''
+    await until(
+      async () => {
+        const now = await page.evaluate(() => {
+          const el = document.querySelector('.nato-walker')
+          return el ? `${el.getBoundingClientRect().left}|${el.getBoundingClientRect().top}` : ''
+        })
+        const stable = now !== '' && now === last
+        last = now
+        return stable
+      },
+      { timeout: 8_000, every: 400, what: 'the character to stop walking' }
     )
   }
 
@@ -1053,6 +1078,98 @@ async function sessionPalace() {
       expect((await page.getByRole('status').count()) === 0, 'the announcement is still shown after coming back')
       expect((await palaceButton().getByText('New').count()) === 0, 'the sidebar still says New')
       return { observed: `Announced: "${text}". Gone after leaving and returning.`, screenshots: [s] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'V5', area: 'Palace', title: 'The palace hub shows every room, the character and the shortcuts',
+      steps: ['In the Palace, choose All rooms.', 'Wait for the character to walk to the room last worked in.', 'Click the Coding room on the map.'],
+      expected:
+        'A map with the four rooms around the atrium, each with its streak. Nato stands at the room last worked in. The atrium offers New chat, reminders and active projects. Clicking a room opens it.',
+      failShot
+    },
+    async () => {
+      await roomTab('All rooms').click()
+      const stage = page.getByTestId('palace-stage')
+      await stage.waitFor({ timeout: 10_000 })
+      const wings = await stage.locator('button.palace-wing').count()
+      expect(wings === 4, `the map had ${wings} rooms`)
+      const nato = stage.getByRole('img', { name: /^Nato, in the (Coding room|Music studio)$/ })
+      await nato.waitFor({ timeout: 5_000 })
+      const where = await nato.getAttribute('alt')
+      for (const name of [/^New chat$/, /^\d+ reminders?$/, /^\d+ active projects?$/]) {
+        expect((await stage.getByRole('button', { name }).count()) === 1, `the atrium has no ${name} shortcut`)
+      }
+      const label = await stage.getByRole('button', { name: /^Music studio: 21-day streak/ }).count()
+      expect(label === 1, 'the Music studio did not show its 21-day streak')
+      const flowing = await stage.locator('line.palace-path.flowing').count()
+      expect(flowing === 2, `${flowing} paths were lit for rooms used today`)
+      await settledHub()
+      const s = await shot(page, 'V5-hub', 'V5 · The palace hub: four rooms around the atrium, Nato at the room last worked in, shortcuts in the centre')
+      await stage.getByRole('button', { name: /^Coding room:/ }).click()
+      await page.locator('figcaption', { hasText: 'Painted room' }).waitFor({ timeout: 10_000 })
+      await page.getByRole('heading', { name: /Recent chats/ }).waitFor({ timeout: 5_000 })
+      return { observed: `${wings} rooms on the map. ${where}. Clicking the Coding room opened it.`, screenshots: [s] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'V6', area: 'Palace', title: 'A chat started inside a room opens beside it',
+      steps: ['In the Coding room, click Chat here.', 'Close the chat panel.', 'Click ← Palace.'],
+      expected:
+        'A new, empty chat opens as a panel beside the room and says it will be filed in the Coding room. Closing it leaves the room; ← Palace returns to the map.',
+      failShot
+    },
+    async () => {
+      await page.getByRole('button', { name: 'Chat here' }).click()
+      const panel = page.getByTestId('chat-panel')
+      await panel.getByText('This chat will be filed in the Coding room.').waitFor({ timeout: 5_000 })
+      expect(await page.locator('figcaption', { hasText: 'Painted room' }).isVisible(), 'the room is not visible beside the chat')
+      await settled()
+      const s = await shot(page, 'V6-chat-here', 'V6 · New chat started from the Coding room: a panel beside the room, saying where it will be filed')
+      await panel.getByRole('button', { name: 'Close chat' }).click()
+      await until(async () => (await panel.count()) === 0, { timeout: 5_000, what: 'the chat panel to close' })
+      await page.getByRole('button', { name: '← Palace' }).click()
+      await page.getByTestId('palace-stage').waitFor({ timeout: 5_000 })
+      return { observed: 'The panel opened beside the Coding room and named it; closing it and ← Palace returned to the map.', screenshots: [s] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'V7', area: 'Palace', title: 'The app opens on the palace, and Cmd+K jumps anywhere',
+      steps: ['Relaunch the app.', 'Press Cmd+K, type "fingerstyle", press Enter.', 'Press Cmd+K, type "coding", press Enter.'],
+      expected:
+        'The app starts on the palace map with the rail collapsed. The search finds the chat by its title and opens it beside its room, the Music studio; then finds the Coding room and goes there.',
+      failShot
+    },
+    async () => {
+      await page.evaluate(() => window.localStorage.clear())
+      await page.reload()
+      await page.getByTestId('palace-stage').waitFor({ timeout: 15_000 })
+      expect((await page.getByRole('navigation', { name: 'Chats' }).count()) === 0, 'the chat list was open at start')
+      const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
+      await page.keyboard.press(`${mod}+k`)
+      const dialog = page.getByRole('dialog', { name: 'Search' })
+      await dialog.waitFor({ timeout: 5_000 })
+      await page.keyboard.type('fingerstyle')
+      const first = (await dialog.getByRole('option').first().innerText()).replace(/\s+/g, ' ').trim()
+      expect(/Daily fingerstyle practice/.test(first), `the first result was: ${first}`)
+      const s1 = await shot(page, 'V7-search', 'V7 · Cmd+K: searching chats, rooms and projects by name')
+      await page.keyboard.press('Enter')
+      await page.getByTestId('chat-panel').getByRole('heading', { name: 'Daily fingerstyle practice' }).waitFor({ timeout: 5_000 })
+      await page.locator('figcaption', { hasText: 'Finished room' }).waitFor({ timeout: 5_000 })
+      await settled()
+      const s2 = await shot(page, 'V7-chat-beside-room', 'V7 · The chat opens as a panel beside the room it lives in')
+      await page.keyboard.press(`${mod}+k`)
+      await dialog.waitFor({ timeout: 5_000 })
+      await page.keyboard.type('coding')
+      await page.keyboard.press('Enter')
+      await page.locator('figcaption', { hasText: 'Painted room' }).waitFor({ timeout: 5_000 })
+      expect((await page.getByTestId('chat-panel').count()) === 0, 'the chat panel stayed open after going to a room')
+      return { observed: `Started on the map. First result: ${first}. Enter opened it beside the Music studio; "coding" went to the Coding room.`, screenshots: [s1, s2] }
     }
   )
 

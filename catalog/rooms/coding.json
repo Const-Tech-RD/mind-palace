@@ -1,13 +1,13 @@
 {
   "id": "coding",
   "name": "Coding room",
-  "belongs": "Programming, debugging, software architecture, databases, APIs, dev tools, deployment, and building or fixing any software or script.",
-  "not_here": "Music production software used to make music (Music studio). The visual look of a design, illustration or 3D model (Art workshop). Buying hardware, career or pricing questions (Mail room).",
+  "belongs": "Building, fixing, running and deploying software: web apps, dashboards and internal panels, websites and landing pages, browser extensions, mobile app builds and store submissions, scripts and scrapers, databases, APIs, hosting, DNS, security reviews of deployed projects, and dev tools.",
+  "not_here": "Reading business numbers out of an app with no change to the app, writing proposals or ad campaigns (Mail room). Judging how a design, image or video looks, or generating visuals (Art workshop). Music production software used to make music (Music studio). Cleaning up a personal computer or organising notes (Mail room).",
   "examples": [
-    "Why does my React effect run twice in development?",
-    "Design a MySQL schema for recurring invoices",
-    "Write a Spring Boot endpoint that streams a CSV export",
-    "How do I set up a Cloudflare Tunnel for a local service?"
+    "The export on production shows the wrong total, find the cause and fix it",
+    "Add a date-range comparison to the metrics dashboard and open a PR",
+    "Build a browser extension that sends the video I'm watching to a chat",
+    "Check that my private admin panels aren't indexed or open to attackers"
   ],
   "accent": "#5eead4",
   "signature": [

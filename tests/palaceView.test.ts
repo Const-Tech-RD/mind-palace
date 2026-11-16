@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
-import { buildPalace, itemKey, itemLabel, newSince, rewardText, seenKeys, trackProgress } from '../src/shared/palace'
+import { activeToday, buildPalace, currentRoomOf, itemKey, itemLabel, newSince, rewardText, seenKeys, trackProgress } from '../src/shared/palace'
 import { addDays } from './shared'
 import { catalog } from './helpers'
 
@@ -152,5 +152,39 @@ describe('trackProgress', () => {
   it('says so when a track is complete', () => {
     const state = roomOf(palace(history('coding', 34)), 'coding').state
     expect(trackProgress(state, 'streak', roomIds)).toMatchObject({ target: null, fraction: 1, caption: 'Everything on this track is unlocked.' })
+  })
+})
+
+describe('the palace hub helpers', () => {
+  it('a room is active today only when it has a chat day today', () => {
+    const view = palace(history('coding', 3))
+    expect(activeToday(roomOf(view, 'coding').state)).toBe(true)
+    expect(activeToday(roomOf(view, 'music').state)).toBe(false)
+  })
+
+  it('a room whose last chat day was yesterday is not active today', () => {
+    const rows = history('coding', 3)
+    rows.messages = rows.messages.slice(1) // drop today's message
+    expect(activeToday(roomOf(palace(rows), 'coding').state)).toBe(false)
+  })
+
+  it('the current room is the room of the most recently used chat', () => {
+    const chats = [
+      { roomId: 'coding', lastMessageAt: '2026-11-10T10:00:00.000Z', createdAt: '2026-11-01T00:00:00.000Z' },
+      { roomId: 'music', lastMessageAt: '2026-11-12T09:00:00.000Z', createdAt: '2026-11-02T00:00:00.000Z' },
+      { roomId: null, lastMessageAt: '2026-11-12T23:00:00.000Z', createdAt: '2026-11-12T00:00:00.000Z' },
+      { roomId: 'gone', lastMessageAt: '2026-11-12T22:00:00.000Z', createdAt: '2026-11-12T00:00:00.000Z' }
+    ]
+    expect(currentRoomOf(chats, roomIds)).toBe('music')
+  })
+
+  it('falls back to the creation time for a chat with no messages, and to null with nothing sorted', () => {
+    const chats = [
+      { roomId: 'coding', lastMessageAt: '2026-11-10T10:00:00.000Z', createdAt: '2026-11-01T00:00:00.000Z' },
+      { roomId: 'art', lastMessageAt: null, createdAt: '2026-11-11T00:00:00.000Z' }
+    ]
+    expect(currentRoomOf(chats, roomIds)).toBe('art')
+    expect(currentRoomOf([{ roomId: null, lastMessageAt: null, createdAt: '2026-11-11T00:00:00.000Z' }], roomIds)).toBeNull()
+    expect(currentRoomOf([], roomIds)).toBeNull()
   })
 })

@@ -129,3 +129,101 @@ body {
     transition: none;
   }
 }
+
+/* Palace hub: the character, the paths between rooms, and entering a room. */
+@keyframes nato-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -1.2%;
+  }
+}
+@keyframes path-flow {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes command-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+.chat-panel {
+  animation: panel-in 0.22s ease-out both;
+}
+.command-bar {
+  animation: command-in 0.14s ease-out both;
+}
+.rail {
+  transition: width 0.18s ease;
+}
+@keyframes palace-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+@keyframes helper-work {
+  0%,
+  100% {
+    rotate: -3deg;
+  }
+  50% {
+    rotate: 3deg;
+  }
+}
+.nato {
+  animation: nato-bob 2.4s ease-in-out infinite;
+  filter: drop-shadow(0 6px 6px rgb(0 0 0 / 0.55));
+}
+.nato-walker {
+  transition:
+    left 0.7s ease-in-out,
+    top 0.7s ease-in-out;
+}
+.palace-path {
+  stroke-dasharray: 2 4;
+}
+.palace-path.flowing {
+  animation: path-flow 1.2s linear infinite;
+}
+.palace-enter {
+  animation: palace-enter 0.35s ease-out both;
+}
+.palace-wing {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.palace-wing:hover,
+.palace-wing:focus-visible {
+  transform: translateY(-3px) scale(1.02);
+}
+.helper {
+  animation: helper-work 0.9s ease-in-out infinite;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 4px 5px rgb(0 0 0 / 0.5));
+}
+@media (prefers-reduced-motion: reduce) {
+  .nato,
+  .palace-path.flowing,
+  .palace-enter,
+  .chat-panel,
+  .command-bar,
+  .helper {
+    animation: none;
+  }
+  .nato-walker,
+  .palace-wing {
+    transition: none;
+  }
+}

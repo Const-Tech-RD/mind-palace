@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { CommandBar } from './components/CommandBar'
 import { ChatView } from './components/ChatView'
 import { Login } from './components/Login'
 import { PalaceView } from './components/PalaceView'
@@ -7,7 +8,10 @@ import { RemindersView } from './components/RemindersView'
 import { Sidebar } from './components/Sidebar'
 import { useStore } from './store'
 
-/** The shell: chats by room on the left; the open chat or the projects panel on the right. */
+/**
+ * The shell: a side rail, and the palace as home. A chat opens as a panel
+ * beside the palace, so the room it belongs to stays in view.
+ */
 export function App() {
   const auth = useStore((s) => s.auth)
   const appError = useStore((s) => s.appError)
@@ -16,6 +20,7 @@ export function App() {
   const handleEvent = useStore((s) => s.handleEvent)
   const handleAppEvent = useStore((s) => s.handleAppEvent)
   const view = useStore((s) => s.view)
+  const chatWide = useStore((s) => s.chatWide)
 
   useEffect(() => {
     const offChat = window.mindPalace.onChatEvent(handleEvent)
@@ -39,15 +44,26 @@ export function App() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      {view === 'palace' ? (
-        <PalaceView />
-      ) : view === 'projects' ? (
+      {view === 'projects' ? (
         <ProjectsView />
       ) : view === 'reminders' ? (
         <RemindersView />
       ) : (
-        <ChatView />
+        <div className="flex h-full min-w-0 flex-1">
+          {!(view === 'chat' && chatWide) && <PalaceView />}
+          {view === 'chat' && (
+            <div
+              className={`chat-panel flex h-full min-w-0 border-l border-white/10 bg-ink ${
+                chatWide ? 'flex-1' : 'w-[min(520px,58%)] shrink-0 shadow-[-12px_0_32px_rgba(0,0,0,0.35)]'
+              }`}
+              data-testid="chat-panel"
+            >
+              <ChatView />
+            </div>
+          )}
+        </div>
       )}
+      <CommandBar />
     </div>
   )
 }

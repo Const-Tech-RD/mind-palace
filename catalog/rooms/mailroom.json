@@ -1,12 +1,13 @@
 {
   "id": "mailroom",
   "name": "Mail room",
-  "belongs": "Every chat that does not clearly fit another room.",
+  "belongs": "Every chat that does not clearly fit another room: client proposals and pricing, ad campaigns and marketing plans, email and messaging outreach, business reports and meeting minutes, invoices and taxes, info-products and business ideas, personal planning and reflection, notes and knowledge-base upkeep, computer housekeeping, research and general questions.",
   "not_here": "",
   "examples": [
-    "What should I cook with chicken thighs and rice?",
-    "Compare two robot vacuums",
-    "Help me word an email to my landlord"
+    "Draft a proposal a client can skim and approve, with two payment options",
+    "Plan this month's ad campaigns for a weekly budget and tell me what to measure",
+    "How much surcharge and interest do I owe on a late tax payment?",
+    "Turn these voice notes from the meeting into minutes with owners and deadlines"
   ],
   "accent": "#a9adc6",
   "signature": [

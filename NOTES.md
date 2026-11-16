@@ -285,3 +285,59 @@ Not verified, or known gaps:
 - **Streaks were seeded with dated messages**, not earned over real days.
 - **The unlock toast "when it happens"** (the plan's diff of yesterday against today) is done as "new since the room was last opened", not as a pop-up at the moment of unlocking.
 - The view was looked at in one window size only.
+
+## Real history: import, room texts and draft eval (2026-11-15)
+
+The plan lists "importing chats from other apps" as out of scope. This was done anyway at the owner's request, with scripts outside the app.
+
+What exists:
+
+- `scripts/extract-claude-code.py` reads the Claude Code transcripts under `~/.claude/projects` (read-only) and writes `import/sessions.jsonl`: per session, only what the person typed, with timestamps. Tool output, slash-command wrappers, hand-over briefs and side chains are dropped, and sensitive values are replaced with placeholders.
+- `import/labels.jsonl`: a room, a project name and a confidence per session. **Written by a model** from the folder and a sample of each session, not by the person.
+- `scripts/import-into-app.py` turns sessions into chats in the app database (ids `cc-…`, projects `ccp-…`), backing the database up first. Re-running replaces the earlier import and never touches chats made in the app.
+- `scripts/build-eval.py` writes `eval/<name>.jsonl` from the sessions and labels.
+- `import/` and `eval/` are git-ignored: they hold private conversations.
+- The four room texts in `catalog/rooms/*.json` (`belongs`, `not_here`, `examples`) were rewritten from what the sessions are really about. Examples are generic paraphrases with no names.
+
+No project is imported as done, so no trophies are invented. Sessions that are scheduled-task runs or tests are left out.
+
+Draft eval (Haiku, first two messages of each chat): room agreement 81.5% against a target of 85%; project precision 76.6% (target above 70%); project recall 34.3%. It cost about three times the token estimate made from the invented sample.
+
+Read these numbers with care:
+
+- **It measures agreement with model-written labels, not accuracy.** The labeller saw the folder and more of each session; the classifier sees two messages. Half of the room disagreements are coding against mailroom in either direction, which is where that difference bites.
+- **Low project recall is partly by design**: the classifier is told to be conservative, and many sessions only become a project later on.
+- The room texts were rewritten from the same sessions the eval uses, so this is not a held-out test.
+
+Known gaps:
+
+- Imported chats hold only the person's side; answers were not imported, and such a chat has no SDK session, so continuing it replays the typed messages as context.
+- One label per session loses topic changes inside long sessions.
+- The redaction is pattern-based, so it can miss things. That is why `import/` and `eval/` must never be committed.
+- Claude.ai chats were not imported (the owner's choice).
+
+## Palace hub (2026-11-15)
+
+Asked for: the character visible, animations, rooms connected, the palace as the central dashboard, clickable actions inside it.
+
+- `PalaceHub.tsx`: "All rooms" is now the Palace's first screen. Four rooms around the atrium, joined by paths; a path is lit and flowing when its room has a chat day today. Nato walks to the room of the most recently used chat (`currentRoomOf`), and walks to a room before it opens. The helper robot appears in a room while Claude is answering a chat filed there.
+- Atrium shortcuts: New chat, reminders waiting, active projects.
+- Room view: Nato inside, "Chat here" (the new chat is moved to that room after the first send, as a user move, so the classifier leaves it there), "← Palace", "Projects here" with Done, "Recent chats".
+- Departs from the plan: the plan has no hub and no character. Illustrated rooms were already a departure.
+
+Verified: typecheck; 224 unit tests (4 new for `activeToday`, `currentRoomOf`); E2E S5 6/6 with new cases V5 (hub) and V6 (Chat here shows the filing hint, ← Palace returns). Looked at the hub and a room on real data.
+
+Not verified: that a chat sent after "Chat here" really lands in that room (needs a real model call; V6 stops at the hint). The helper robot during a live answer. Reduced-motion behaviour. S1–S4 were not rerun after these changes; the PDF report is not regenerated.
+
+## Stage 1 of "make it alive": the palace is home (2026-11-15)
+
+- The app opens on the palace (`view: 'palace'`), not on an empty chat.
+- `Sidebar.tsx` is a rail: icons only (New chat, Palace, Projects, Reminders, Search, Show chats). "Show chats" expands it to the old chat list; the choice is kept in localStorage.
+- A chat opens as a panel beside the palace (`App.tsx`, `data-testid="chat-panel"`), and the palace switches to the chat's room. The panel has "whole window" and "close" buttons; Esc closes it when the draft is empty. When the classifier files the open chat, the room behind follows.
+- `CommandBar.tsx` + `src/shared/commands.ts`: Cmd/Ctrl+K searches actions, rooms, open projects and chats (accent-insensitive).
+- The room layout uses a container query (`@4xl:`) so it stacks when the chat panel is open.
+- Departs from the plan: the plan's shell is sidebar + chat. Claudio should know.
+
+Verified: typecheck; 231 unit tests (7 new for the search); full E2E run 35 pass, 1 fail (R1, a test selector), 1 skipped (L3, as before); R1 fixed and S1 rerun 12/12. New cases V6 (panel beside the room) and V7 (starts on the palace; Cmd+K). The E2E `launch()` helper now expands the rail and opens New chat so the older cases start where they used to.
+
+Not verified: S2 was not rerun after one selector in it was scoped to the chat panel (line ~682). `report.pdf` is not regenerated and `results.json` now holds only the last partial run. Narrow windows (under ~900px). Screen-reader behaviour of the command bar.

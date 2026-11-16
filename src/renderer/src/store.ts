@@ -23,12 +23,23 @@ interface State {
   notificationsOn: boolean
   /** Null until the palace has been loaded once. */
   palace: PalaceView | null
-  /** The room showing in the palace view. */
+  /** The room showing in the palace view; null is the palace itself, with every room. */
   palaceRoomId: string | null
+  /** The room a chat started from inside the palace will be filed in. */
+  newChatRoomId: string | null
   /** Rooms looked at since the palace was last loaded: their news no longer counts for the sidebar badge. */
   seenRooms: string[]
-  /** Which main view is showing. */
+  /**
+   * Which main view is showing. The palace is home; `chat` is the palace with
+   * the chat panel open beside it.
+   */
   view: 'chat' | 'projects' | 'reminders' | 'palace'
+  /** The chat panel takes the whole width, hiding the palace. */
+  chatWide: boolean
+  /** The side rail is expanded to show the list of chats. */
+  railOpen: boolean
+  /** The command bar (Cmd+K) is showing. */
+  commandOpen: boolean
   /** Null means the "new chat" screen. */
   activeChatId: string | null
   messages: Record<string, ChatMessage[]>
@@ -43,6 +54,11 @@ interface State {
   checkAuth(): Promise<void>
   refreshChats(): Promise<void>
   selectChat(chatId: string | null): Promise<void>
+  /** Closes the chat panel and leaves the palace showing. */
+  closeChat(): void
+  toggleChatWide(): void
+  toggleRail(): void
+  setCommandOpen(open: boolean): void
   send(text: string): Promise<void>
   stop(): Promise<void>
   deleteChat(chatId: string): Promise<void>
@@ -52,7 +68,10 @@ interface State {
   /** Answers the "Track it?" card. */
   answerSuggestion(chatId: string, track: boolean): Promise<void>
   projectAction(projectId: string, action: ProjectAction): Promise<void>
-  showPalace(roomId?: string): Promise<void>
+  /** Opens the palace: on a room when given one, otherwise on the whole palace. */
+  showPalace(roomId?: string | null): Promise<void>
+  /** Starts a new chat that will be filed in this room. */
+  startChatIn(roomId: string): void
   refreshPalace(): Promise<void>
   /** Marks the room as looked at; what is highlighted as new stays on screen until the next refresh. */
   markRoomSeen(roomId: string): Promise<void>
@@ -70,6 +89,23 @@ const describe = (error: unknown): string => {
   return text.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
+const RAIL_KEY = 'mind-palace.rail-open'
+const WIDE_KEY = 'mind-palace.chat-wide'
+const remembered = (key: string): boolean => {
+  try {
+    return window.localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+const remember = (key: string, on: boolean): void => {
+  try {
+    window.localStorage.setItem(key, on ? '1' : '0')
+  } catch {
+    // Only a convenience; the app works without it.
+  }
+}
+
 const without = <T,>(record: Record<string, T>, key: string): Record<string, T> => {
   const { [key]: _removed, ...rest } = record
   return rest
@@ -84,8 +120,12 @@ export const useStore = create<State>((set, get) => ({
   notificationsOn: true,
   palace: null,
   palaceRoomId: null,
+  newChatRoomId: null,
   seenRooms: [],
-  view: 'chat',
+  view: 'palace',
+  chatWide: remembered(WIDE_KEY),
+  railOpen: remembered(RAIL_KEY),
+  commandOpen: false,
   activeChatId: null,
   messages: {},
   streaming: {},
@@ -103,7 +143,9 @@ export const useStore = create<State>((set, get) => ({
         window.mindPalace.invoke('reminder:notifications', {})
       ])
       set({ status, auth, chats, reminders, notificationsOn: notifications.enabled })
+      // The palace is the first screen, and it shows projects too.
       void get().refreshPalace()
+      void get().refreshProjects()
     } catch (error) {
       set({ appError: describe(error) })
     }
@@ -126,7 +168,17 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async selectChat(chatId) {
-    set({ activeChatId: chatId, appError: null, view: 'chat' })
+    // The palace behind the panel shows the room the chat lives in.
+    const roomId = get().chats.find((c) => c.id === chatId)?.roomId ?? null
+    const known = roomId !== null && (get().palace?.rooms.some((r) => r.id === roomId) ?? false)
+    set((s) => ({
+      activeChatId: chatId,
+      appError: null,
+      view: 'chat',
+      newChatRoomId: null,
+      commandOpen: false,
+      palaceRoomId: known ? roomId : s.palaceRoomId
+    }))
     if (chatId === null || get().messages[chatId]) return
     try {
       const loaded = await window.mindPalace.invoke('chat:messages', { chatId })
@@ -144,6 +196,12 @@ export const useStore = create<State>((set, get) => ({
     try {
       const sent = await window.mindPalace.invoke('chat:send', { chatId, text })
       if (get().activeChatId === null) set({ activeChatId: sent.chatId })
+      const room = get().newChatRoomId
+      if (chatId === null && room !== null) {
+        // Started from inside a room: file it there, as the person's own choice.
+        set({ newChatRoomId: null })
+        await get().moveChat(sent.chatId, room)
+      }
     } catch (error) {
       const message = describe(error)
       if (chatId === null) set({ appError: message })
@@ -152,6 +210,26 @@ export const useStore = create<State>((set, get) => ({
     } finally {
       set({ startingChat: false })
     }
+  },
+
+  closeChat() {
+    set({ view: 'palace', appError: null })
+  },
+
+  toggleChatWide() {
+    const chatWide = !get().chatWide
+    remember(WIDE_KEY, chatWide)
+    set({ chatWide })
+  },
+
+  toggleRail() {
+    const railOpen = !get().railOpen
+    remember(RAIL_KEY, railOpen)
+    set({ railOpen })
+  },
+
+  setCommandOpen(open) {
+    set({ commandOpen: open })
   },
 
   async stop() {
@@ -177,7 +255,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async showProjects() {
-    set({ view: 'projects', appError: null })
+    set({ view: 'projects', appError: null, commandOpen: false })
     await get().refreshProjects()
   },
 
@@ -219,15 +297,21 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async showPalace(roomId) {
-    set((s) => ({ view: 'palace', appError: null, palaceRoomId: roomId ?? s.palaceRoomId }))
-    await get().refreshPalace()
-    // Default to the room of the chat that is open, else the first room.
-    set((s) => {
-      if (s.palaceRoomId && s.palace?.rooms.some((r) => r.id === s.palaceRoomId)) return {}
-      const openRoom = s.chats.find((c) => c.id === s.activeChatId)?.roomId
-      const fallback = s.palace?.rooms.find((r) => r.id === openRoom)?.id ?? s.palace?.rooms[0]?.id ?? null
-      return { palaceRoomId: fallback }
-    })
+    set({ view: 'palace', appError: null, palaceRoomId: roomId ?? null, commandOpen: false })
+    // The palace is a dashboard: it shows projects and reminders too.
+    await Promise.all([get().refreshPalace(), get().refreshProjects(), get().refreshReminders(), get().refreshChats()])
+  },
+
+  startChatIn(roomId) {
+    const known = get().palace?.rooms.some((r) => r.id === roomId) ?? false
+    set((s) => ({
+      view: 'chat',
+      activeChatId: null,
+      appError: null,
+      newChatRoomId: roomId,
+      commandOpen: false,
+      palaceRoomId: known ? roomId : s.palaceRoomId
+    }))
   },
 
   async refreshPalace() {
@@ -248,7 +332,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async showReminders() {
-    set({ view: 'reminders', appError: null })
+    set({ view: 'reminders', appError: null, commandOpen: false })
     await get().refreshReminders()
   },
 
@@ -342,7 +426,16 @@ export const useStore = create<State>((set, get) => ({
         }))
         break
       case 'updated':
-        void get().refreshChats()
+        void get()
+          .refreshChats()
+          .then(() => {
+            // The open chat was filed or moved: the palace behind it follows.
+            const s = get()
+            const roomId = s.chats.find((c) => c.id === chatId)?.roomId ?? null
+            if (s.view === 'chat' && s.activeChatId === chatId && roomId && s.palace?.rooms.some((r) => r.id === roomId)) {
+              set({ palaceRoomId: roomId })
+            }
+          })
         void get().refreshPalace()
         if (get().view === 'projects') void get().refreshProjects()
         break

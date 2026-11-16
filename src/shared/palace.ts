@@ -140,3 +140,25 @@ export function trackProgress(state: RoomState, track: Track, roomIds: readonly 
       : `${plural(next.remaining, 'more finished project')}`
   return { track, value, target: next.at, fraction, caption: `${need} for the ${rewardText(next, roomIds)}.` }
 }
+
+/** True when the room already has a chat day today: its streak is being fed right now. */
+export function activeToday(state: RoomState): boolean {
+  return state.streak.lastRoomDay === state.today
+}
+
+/**
+ * The room the person was last working in: the room of the chat with the most
+ * recent message, among rooms that exist. Null when nothing has been sorted yet.
+ */
+export function currentRoomOf(
+  chats: ReadonlyArray<{ roomId: string | null; lastMessageAt: string | null; createdAt: string }>,
+  roomIds: readonly string[]
+): string | null {
+  let best: { roomId: string; at: string } | null = null
+  for (const chat of chats) {
+    if (chat.roomId === null || !roomIds.includes(chat.roomId)) continue
+    const at = chat.lastMessageAt ?? chat.createdAt
+    if (best === null || at > best.at) best = { roomId: chat.roomId, at }
+  }
+  return best?.roomId ?? null
+}

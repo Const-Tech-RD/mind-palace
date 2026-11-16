@@ -1,24 +1,10 @@
 import { useEffect, useMemo } from 'react'
-import type { ShellTier } from '@shared/catalog'
 import { itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
-import art from '../assets/rooms/art.jpg'
-import coding from '../assets/rooms/coding.jpg'
-import mailroom from '../assets/rooms/mailroom.jpg'
-import music from '../assets/rooms/music.jpg'
+import helper from '../assets/characters/helper.png'
+import nato from '../assets/characters/nato.png'
 import { useStore } from '../store'
-
-/** The illustrated room for each catalog room. A room without a picture falls back to a plain panel. */
-const ROOM_IMAGE: Record<string, string> = { coding, music, art, mailroom }
-
-/**
- * The room's shell tier shows in the picture itself: a bare room is dim and
- * almost colourless, a painted one has some of its colour, a finished one all of it.
- */
-const SHELL_FILTER: Record<ShellTier, string> = {
-  bare: 'grayscale(0.9) brightness(0.55) contrast(0.95)',
-  painted: 'grayscale(0.4) brightness(0.82)',
-  finished: 'none'
-}
+import { PalaceHub } from './PalaceHub'
+import { ROOM_IMAGE, SHELL_FILTER } from './roomArt'
 
 const MAX_TROPHIES = 5
 
@@ -63,9 +49,24 @@ function TrackCard({ title, unit, progress, best }: { title: string; unit: strin
   )
 }
 
+const RECENT_CHATS = 6
+
 function Room({ room, roomIds }: { room: PalaceRoom; roomIds: string[] }) {
   const { state } = room
   const image = ROOM_IMAGE[room.id]
+  const chats = useStore((s) => s.chats)
+  const projects = useStore((s) => s.projects)
+  const streaming = useStore((s) => s.streaming)
+  const startChatIn = useStore((s) => s.startChatIn)
+  const selectChat = useStore((s) => s.selectChat)
+  const showPalace = useStore((s) => s.showPalace)
+  const projectAction = useStore((s) => s.projectAction)
+  const roomChats = useMemo(() => chats.filter((c) => c.roomId === room.id), [chats, room.id])
+  const roomProjects = useMemo(
+    () => projects.filter((p) => p.roomId === room.id && p.state === 'active'),
+    [projects, room.id]
+  )
+  const working = roomChats.some((c) => streaming[c.id])
   const fresh = useMemo(() => new Set(room.newItems), [room.newItems])
   const furniture = state.items.filter((item) => item.source !== 'trophy')
   const hasShelf = state.items.some((item) => item.item === 'trophy_shelf')
@@ -76,7 +77,7 @@ function Room({ room, roomIds }: { room: PalaceRoom; roomIds: string[] }) {
   ]
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6 lg:flex-row">
+    <div className="palace-enter mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6 @4xl:flex-row">
       <div className="min-w-0 flex-1">
         {news.length > 0 && (
           <p role="status" className="palace-new mb-3 rounded-lg bg-amber-300 px-4 py-2 text-sm font-medium text-ink">
@@ -94,6 +95,34 @@ function Room({ room, roomIds }: { room: PalaceRoom; roomIds: string[] }) {
           ) : (
             <div className="flex aspect-video items-center justify-center text-sm text-muted">No picture for this room yet.</div>
           )}
+          {image && (
+            <>
+              <img src={nato} alt="Nato" className="nato pointer-events-none absolute bottom-[6%] left-[44%] h-[40%]" />
+              {working && (
+                <img
+                  src={helper}
+                  alt="Claude is answering in this room"
+                  className="helper pointer-events-none absolute bottom-[8%] left-[58%] h-[30%]"
+                />
+              )}
+            </>
+          )}
+          <div className="absolute top-3 right-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => startChatIn(room.id)}
+              className="rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink shadow hover:bg-white"
+            >
+              Chat here
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => void showPalace(null)}
+            className="absolute top-3 left-3 rounded-full bg-black/60 px-3 py-1.5 text-xs text-paper backdrop-blur hover:bg-black/85"
+          >
+            ← Palace
+          </button>
           <figcaption className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs backdrop-blur">
             <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
             {SHELL_LABEL[state.shell]}
@@ -113,7 +142,7 @@ function Room({ room, roomIds }: { room: PalaceRoom; roomIds: string[] }) {
 
         <section className="mt-5">
           <h3 className="text-xs font-medium tracking-wide text-muted uppercase">In this room</h3>
-          <ul className="mt-2 flex flex-wrap gap-2">
+          <ul className="mt-2 flex flex-wrap gap-2" data-testid="room-furniture">
             {furniture.map((item) => {
               const isNew = fresh.has(itemKey(item))
               return (
@@ -132,7 +161,62 @@ function Room({ room, roomIds }: { room: PalaceRoom; roomIds: string[] }) {
         </section>
       </div>
 
-      <aside className="flex shrink-0 flex-col gap-3 lg:w-72">
+      <aside className="flex shrink-0 flex-col gap-3 @4xl:w-72">
+        <section className="rounded-lg bg-ink-soft p-4">
+          <h3 className="text-xs font-medium tracking-wide text-muted uppercase">
+            Projects here · {roomProjects.length}
+          </h3>
+          {roomProjects.length === 0 ? (
+            <p className="mt-2 text-xs text-muted">No active project in this room.</p>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {roomProjects.slice(0, RECENT_CHATS).map((project) => (
+                <li key={project.id} className="flex items-center gap-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => project.chatIds[0] && void selectChat(project.chatIds[0])}
+                    className="min-w-0 flex-1 truncate text-left hover:underline"
+                    title={project.title}
+                  >
+                    {project.title}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void projectAction(project.id, 'done')}
+                    aria-label={`Mark ${project.title} done`}
+                    className="shrink-0 rounded-md bg-white/10 px-2 py-0.5 text-xs hover:bg-white/20"
+                  >
+                    Done
+                  </button>
+                </li>
+              ))}
+              {roomProjects.length > RECENT_CHATS && (
+                <li className="text-xs text-muted">and {roomProjects.length - RECENT_CHATS} more in Projects</li>
+              )}
+            </ul>
+          )}
+        </section>
+        <section className="rounded-lg bg-ink-soft p-4">
+          <h3 className="text-xs font-medium tracking-wide text-muted uppercase">Recent chats · {roomChats.length}</h3>
+          {roomChats.length === 0 ? (
+            <p className="mt-2 text-xs text-muted">Nothing filed here yet.</p>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-1">
+              {roomChats.slice(0, RECENT_CHATS).map((chat) => (
+                <li key={chat.id}>
+                  <button
+                    type="button"
+                    onClick={() => void selectChat(chat.id)}
+                    className="block w-full truncate text-left text-sm text-paper/85 hover:underline"
+                    title={chat.title}
+                  >
+                    {chat.title || 'New chat'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <TrackCard title="Streak" unit="day" progress={trackProgress(state, 'streak', roomIds)} best={state.streak.best} />
         <TrackCard title="Finished projects" unit="goal" progress={trackProgress(state, 'goals', roomIds)} />
         <p className="px-1 text-xs leading-relaxed text-muted">
@@ -153,6 +237,7 @@ export function PalaceView() {
   const appError = useStore((s) => s.appError)
   const seenRooms = useStore((s) => s.seenRooms)
 
+  // No room chosen: the palace itself, with every room around the atrium.
   const room = palace?.rooms.find((r) => r.id === roomId) ?? null
   const roomIds = useMemo(() => palace?.rooms.map((r) => r.id) ?? [], [palace])
   const hasNews = room !== null && (room.newItems.length > 0 || room.newShell !== null)
@@ -165,9 +250,19 @@ export function PalaceView() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-white/10 px-5">
+      <header className="flex h-12 shrink-0 items-center gap-4 overflow-x-auto border-b border-white/10 px-5 whitespace-nowrap">
         <h1 className="text-sm font-medium">Palace</h1>
         <nav className="flex gap-1" aria-label="Rooms">
+          <button
+            type="button"
+            onClick={() => void showPalace(null)}
+            aria-current={roomId === null ? 'page' : undefined}
+            className={`rounded-full px-3 py-1 text-xs ${
+              roomId === null ? 'bg-white/15 text-paper' : 'text-paper/70 hover:bg-white/5'
+            }`}
+          >
+            All rooms
+          </button>
           {palace?.rooms.map((r) => {
             const active = r.id === roomId
             const isNew = !seenRooms.includes(r.id) && (r.newItems.length > 0 || r.newShell !== null)
@@ -189,13 +284,19 @@ export function PalaceView() {
           })}
         </nav>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="@container min-h-0 flex-1 overflow-y-auto">
         {appError && (
           <p role="alert" className="mx-5 mt-4 rounded-md bg-red-950 px-3 py-2 text-sm text-red-200">
             {appError}
           </p>
         )}
-        {room ? <Room room={room} roomIds={roomIds} /> : <p className="mt-24 text-center text-sm text-muted">Loading the palace…</p>}
+        {room ? (
+          <Room key={room.id} room={room} roomIds={roomIds} />
+        ) : palace ? (
+          <PalaceHub />
+        ) : (
+          <p className="mt-24 text-center text-sm text-muted">Loading the palace…</p>
+        )}
       </div>
     </section>
   )
