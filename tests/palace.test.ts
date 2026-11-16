@@ -688,3 +688,12 @@ describe('project service', () => {
     expect(h.projects.get(id)!.lastActivityAt).toBe('2026-11-20T09:00:00.000Z')
   })
 })
+
+describe('areaKey outside ASCII', () => {
+  it('folds accents and keeps letters of any script', () => {
+    expect(areaKey('Música')).toBe('musica')
+    expect(areaKey('Musica')).toBe('musica')
+    expect(areaKey('Diseño gráfico')).toBe('diseno_grafico')
+    expect(areaKey('日本語')).toBe('日本語')
+  })
+})

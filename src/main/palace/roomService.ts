@@ -83,7 +83,8 @@ export function createRoomService(deps: RoomServiceDeps) {
 
   /** A room id from its name: lower case, unique, starting with a letter. */
   function roomIdFor(name: string, taken: ReadonlySet<string>): string {
-    let base = areaKey(name) || 'room'
+    // Ids stay ASCII (they name tokens, settings and placements): drop what areaKey kept of other scripts.
+    let base = areaKey(name).replace(/[^a-z0-9_]/g, '').replace(/^_+|_+$/g, '') || 'room'
     if (!/^[a-z]/.test(base)) base = `room_${base}`
     let id = base
     for (let n = 2; taken.has(id); n++) id = `${base}_${n}`

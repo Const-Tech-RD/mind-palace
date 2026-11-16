@@ -15,8 +15,10 @@ export interface ProjectServiceDeps {
   afterActivity?: (projectId: string) => void
   /** Runs before a chat changes room, so the room it leaves keeps what it earned. */
   beforeMove?: () => void
-  /** After a goal is reopened in a room (its kept goal mark goes back down). */
-  afterReopen?: (roomId: string) => void
+  /** Counted goal days in a room, read before a reopen removes some. */
+  goalDaysOf?: (roomId: string) => number
+  /** After a goal is reopened in a room: its kept goal mark drops by the days removed. */
+  afterReopen?: (roomId: string, daysBefore: number) => void
   now?: () => Date
 }
 
@@ -81,6 +83,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
       if (!project) throw new Error('That project no longer exists.')
       const at = now()
       const change = applyProjectAction(project.state, action, at)
+      const daysBefore = change.completion === 'remove' ? (deps.goalDaysOf?.(project.roomId) ?? 0) : 0
       repo.transaction(() => {
         repo.updateProject(projectId, {
           state: change.state,
@@ -95,7 +98,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
           repo.removeCompletions(projectId)
         }
       })
-      if (change.completion === 'remove') deps.afterReopen?.(project.roomId)
+      if (change.completion === 'remove') deps.afterReopen?.(project.roomId, daysBefore)
       deps.afterAction?.(projectId, action)
       return repo.project(projectId)!
     },

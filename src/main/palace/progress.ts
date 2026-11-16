@@ -1,6 +1,6 @@
 import { buildRoomEvents, computeRoomState, localDayOf, type KeptProgress } from '@shared/engine'
 import type { Catalog } from '@shared/catalog'
-import { progressMarks } from '@shared/progress'
+import { goalMarkAfterReopen, progressMarks } from '@shared/progress'
 import { eq, sql } from 'drizzle-orm'
 import type { Store } from '../db/client'
 import { goalCompletions, roomProgress } from '../db/schema'
@@ -13,6 +13,17 @@ import { historyRows } from './view'
 export function createProgressKeeper(deps: { store: Store; catalog: () => Catalog; timeZone: () => string; now?: () => Date }) {
   const { store } = deps
   const now = deps.now ?? (() => new Date())
+
+  /** Counted goal days in a room now (at most one completion counts per day). */
+  function goalDays(roomId: string): number {
+    return (
+      store.db
+        .select({ n: sql<number>`count(distinct ${goalCompletions.localDay})` })
+        .from(goalCompletions)
+        .where(eq(goalCompletions.roomId, roomId))
+        .get()?.n ?? 0
+    )
+  }
 
   function kept(): Record<string, KeptProgress> {
     return Object.fromEntries(
@@ -42,15 +53,15 @@ export function createProgressKeeper(deps: { store: Store; catalog: () => Catalo
       }
     },
 
-    /** After a goal is reopened (a deliberate undo): the goal mark goes back to what the rows give. */
-    resetGoals(roomId: string): void {
-      const count =
-        store.db
-          .select({ n: sql<number>`count(distinct ${goalCompletions.localDay})` })
-          .from(goalCompletions)
-          .where(eq(goalCompletions.roomId, roomId))
-          .get()?.n ?? 0
-      store.db.update(roomProgress).set({ goalCount: count, updatedAt: now().toISOString() }).where(eq(roomProgress.roomId, roomId)).run()
+    goalDays,
+
+    /** After a goal is reopened (a deliberate undo): the mark drops by the goal days that reopen removed, no more. */
+    resetGoals(roomId: string, daysBefore: number): void {
+      const mark = kept()[roomId]
+      if (!mark) return
+      const daysNow = goalDays(roomId)
+      const goalCount = goalMarkAfterReopen(mark.goalCount, Math.max(0, daysBefore - daysNow), daysNow)
+      store.db.update(roomProgress).set({ goalCount, updatedAt: now().toISOString() }).where(eq(roomProgress.roomId, roomId)).run()
     }
   }
 }

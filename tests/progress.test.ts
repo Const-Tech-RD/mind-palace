@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { computeRoomState } from '../src/shared/engine'
-import { progressMarks } from '../src/shared/progress'
+import { goalMarkAfterReopen, progressMarks } from '../src/shared/progress'
 import { catalog, chatsOn, run } from './helpers'
 
 const stateWith = (roomId: string, days: number) =>
@@ -27,5 +27,16 @@ describe('progressMarks', () => {
     expect(progressMarks([stateWith('coding', 5)], { coding: { bestStreak: 2, goalCount: 4 } })).toEqual([
       { roomId: 'coding', bestStreak: 5, goalCount: 4 }
     ])
+  })
+})
+
+describe('goalMarkAfterReopen', () => {
+  it('lowers the mark only by the goal days the reopen removed', () => {
+    // 3 days earned, 2 of them left with a project that moved rooms; reopening the last one here removes 1.
+    expect(goalMarkAfterReopen(3, 1, 0)).toBe(2)
+  })
+  it('never goes below what the rows give now, nor above the old mark', () => {
+    expect(goalMarkAfterReopen(1, 2, 2)).toBe(2)
+    expect(goalMarkAfterReopen(4, 4, 3)).toBe(3)
   })
 })

@@ -20,3 +20,12 @@ export function progressMarks(states: readonly RoomState[], kept: Readonly<Recor
   }
   return marks
 }
+
+/**
+ * The goal mark after a goal is reopened (a deliberate undo): it drops by the
+ * goal days the reopen removed, never by days that left with a project moved
+ * to another room, and never below what the rows give now.
+ */
+export function goalMarkAfterReopen(kept: number, removedDays: number, daysNow: number): number {
+  return Math.max(daysNow, kept - removedDays)
+}

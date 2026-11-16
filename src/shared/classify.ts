@@ -30,14 +30,17 @@ export interface KnownArea {
 
 /**
  * One key for every spelling of an area: lower case, runs of anything but
- * letters and digits become `_`, no `_` at either end. "3D printing",
+ * letters and digits become `_`, no `_` at either end; accents are dropped,
+ * letters of other scripts kept. "3D printing",
  * "3d-printing" and " 3D Printing " are all `3d_printing`.
  */
 export function areaKey(name: string): string {
   return name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '') // "Música" and "Musica" are one area
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
     .replace(/^_+|_+$/g, '')
 }
 

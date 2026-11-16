@@ -16,7 +16,7 @@ import { createPalaceView } from './palace/view'
 import { createProgressKeeper } from './palace/progress'
 import { createRoomsRepo } from './palace/roomsRepo'
 import { createRoomService } from './palace/roomService'
-import { catalogWithRooms, roomDefFromRow } from '@shared/rooms'
+import { catalogWithValidRooms, roomDefFromRow } from '@shared/rooms'
 import type { Catalog } from '@shared/catalog'
 import { openStore, type Store } from './db/client'
 import { handle } from './ipc'
@@ -83,7 +83,7 @@ function start(): void {
   const roomsRepo = createRoomsRepo(db.db)
   /** The catalog with the rooms the person made; read fresh, since rooms are made while the app runs. */
   const currentCatalog = (): Catalog =>
-    catalogWithRooms(
+    catalogWithValidRooms(
       fileCatalog,
       roomsRepo.rows().flatMap((row) => {
         try {
@@ -92,7 +92,8 @@ function start(): void {
           console.warn(`[mind-palace] room "${row.id}" is left out: ${error instanceof Error ? error.message : String(error)}`)
           return []
         }
-      })
+      }),
+      (message) => console.warn(`[mind-palace] ${message}`)
     )
 
   const status = (): AppStatus => ({
@@ -144,7 +145,8 @@ function start(): void {
     afterAction: (projectId, action) => reminders?.afterProjectAction(projectId, action),
     afterActivity: (projectId) => reminders?.afterProjectActivity(projectId),
     beforeMove: () => keeper.record(),
-    afterReopen: (roomId) => keeper.resetGoals(roomId)
+    goalDaysOf: (roomId) => keeper.goalDays(roomId),
+    afterReopen: (roomId, daysBefore) => keeper.resetGoals(roomId, daysBefore)
   })
   const reminderService = createReminderService({
     repo: createReminderRepo(db.db),

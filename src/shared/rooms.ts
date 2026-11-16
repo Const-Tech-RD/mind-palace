@@ -81,3 +81,16 @@ export function roomDefFromRow(row: RoomRow): RoomDef {
     assets: {}
   }
 }
+
+/** Like `catalogWithRooms`, but a room the catalog cannot hold (an item or slot gone, a clash) is left out with a warning instead of failing all of them. */
+export function catalogWithValidRooms(base: Catalog, rooms: readonly RoomDef[], warn: (message: string) => void): Catalog {
+  let catalog = base
+  for (const room of rooms) {
+    try {
+      catalog = catalogWithRooms(catalog, [room])
+    } catch (error) {
+      warn(`room "${room.id}" is left out: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return catalog
+}

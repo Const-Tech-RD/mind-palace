@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadCatalog } from '../src/main/catalog/loader'
 import { computeRoomState } from '../src/shared/engine'
-import { accentToken, catalogWithRooms, ROOM_ACCENTS, roomDefFromRow, type RoomRow } from '../src/shared/rooms'
+import { accentToken, catalogWithRooms, catalogWithValidRooms, ROOM_ACCENTS, roomDefFromRow, type RoomRow } from '../src/shared/rooms'
 import { CODING, MUSIC } from './fixtures/rooms'
 import { CATALOG_DIR, placed } from './helpers'
 
@@ -86,5 +86,15 @@ describe('roomDefFromRow', () => {
     const def = roomDefFromRow({ ...row, signature: [] })
     const state = computeRoomState('finance', [], catalogWithRooms(base, [def]), '2026-12-01')
     expect(placed(state)).toEqual(['base_crate@seat', 'base_desk@desk'])
+  })
+})
+
+describe('catalogWithValidRooms', () => {
+  it('leaves out a room the catalog cannot hold, keeps the rest, and says why', () => {
+    const warnings: string[] = []
+    const broken = { ...MUSIC, signature: [{ n: 1, unlock: 'start' as const, item: 'gone_item', slots: ['desk_center'] }] }
+    const catalog = catalogWithValidRooms(base, [broken, CODING], (w) => warnings.push(w))
+    expect(Object.keys(catalog.rooms).sort()).toEqual(['coding', 'mailroom'])
+    expect(warnings.join('\n')).toContain('gone_item')
   })
 })
