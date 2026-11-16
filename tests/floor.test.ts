@@ -201,7 +201,9 @@ function hallTiles(halls: ReadonlyArray<{ x: number; y: number; w: number; d: nu
 describe('a palace that grows', () => {
   const only = (ids: string[]) => ({ ...catalog, rooms: Object.fromEntries(ids.map((id) => [id, catalog.rooms[id]!])) })
   const floorFor = (cat: typeof catalog, ethereal: { cell: Cell; name: string } | null = null) =>
-    buildPalace({ catalog: cat, rows: empty, timeZone: 'UTC', today: TODAY, seen: {}, ethereal }).floor
+    ethereal
+      ? buildFloor(cat, buildPalace({ catalog: cat, rows: empty, timeZone: 'UTC', today: TODAY, seen: {} }).rooms.map((r) => ({ ...r, decay: r.decay.level })), null, ethereal)
+      : buildPalace({ catalog: cat, rows: empty, timeZone: 'UTC', today: TODAY, seen: {} }).floor
 
   it('fills cells behind and beside the Mail room, nearest first', () => {
     const cells: Cell[] = [[0, 0]]

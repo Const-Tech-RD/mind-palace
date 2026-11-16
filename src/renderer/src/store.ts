@@ -413,6 +413,12 @@ export const useStore = create<State>((set, get) => ({
         void get().refreshReminders()
         if (get().view === 'projects') void get().refreshProjects()
         break
+      case 'rooms_changed':
+        void window.mindPalace.status().then((status) => set({ status }))
+        void get().refreshChats()
+        void get().refreshPalace()
+        if (get().view === 'projects') void get().refreshProjects()
+        break
       case 'open_project':
         void get().refreshReminders()
         if (event.chatId) void get().refreshChats().then(() => get().selectChat(event.chatId!))

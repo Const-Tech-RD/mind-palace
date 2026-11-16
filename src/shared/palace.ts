@@ -4,7 +4,8 @@
  * Pure: rows in, view model out.
  */
 import type { Catalog, ShellTier } from './catalog'
-import { buildFloor, type Cell, type FloorView } from './floor'
+import { buildFloor, nextCell, type Cell, type FloorView } from './floor'
+import type { Suggestion } from './suggest'
 import { dropTargets } from './editMode'
 import { resolvePlacements, type InventoryItem, type Placement, type ResolvedItem } from './placements'
 import {
@@ -41,6 +42,10 @@ export interface PalaceRoom {
 export interface PalaceView {
   today: LocalDay
   rooms: PalaceRoom[]
+  /** Areas ready to become rooms, busiest first. Only the person's Materialize makes one. */
+  suggestions: Suggestion[]
+  /** The top suggestion, drawn as a ghost where its room would stand. */
+  ethereal: (Suggestion & { cell: Cell }) | null
   /** The same rooms laid out on the one connected floor, for the canvas. */
   floor: FloorView
 }
@@ -80,8 +85,8 @@ export function buildPalace(input: {
   focus?: string | null
   /** What each room already earned (`room_progress`); unlocks never drop below it. */
   kept?: Readonly<Record<string, KeptProgress>>
-  /** The suggested room to draw as a ghost, in the cell it would take. */
-  ethereal?: { cell: Cell; name: string } | null
+  /** Areas ready to become rooms (`suggestRooms`); the first is drawn as a ghost room. */
+  suggestions?: readonly Suggestion[]
 }): PalaceView {
   const events = buildRoomEvents(input.rows, input.timeZone)
   const rooms = Object.values(input.catalog.rooms).map((room) => {
@@ -109,7 +114,16 @@ export function buildPalace(input: {
     }
   })
   const floorRooms = rooms.map((r) => ({ ...r, decay: r.decay.level }))
-  return { today: input.today, rooms, floor: buildFloor(input.catalog, floorRooms, input.focus ?? null, input.ethereal ?? null) }
+  const suggestions = [...(input.suggestions ?? [])]
+  const top = suggestions[0]
+  const ethereal = top ? { ...top, cell: nextCell(rooms.map((r) => r.cell)) } : null
+  return {
+    today: input.today,
+    rooms,
+    suggestions,
+    ethereal,
+    floor: buildFloor(input.catalog, floorRooms, input.focus ?? null, ethereal ? { cell: ethereal.cell, name: ethereal.name } : null)
+  }
 }
 
 const SPECIAL_LABELS: Record<string, string> = {

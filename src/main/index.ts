@@ -15,6 +15,7 @@ import { createPalaceRepo } from './palace/repo'
 import { createPalaceView } from './palace/view'
 import { createProgressKeeper } from './palace/progress'
 import { createRoomsRepo } from './palace/roomsRepo'
+import { createRoomService } from './palace/roomService'
 import { catalogWithRooms, roomDefFromRow } from '@shared/rooms'
 import type { Catalog } from '@shared/catalog'
 import { openStore, type Store } from './db/client'
@@ -230,10 +231,36 @@ function start(): void {
     return { dismissed: true }
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
-  const palace = createPalaceView({ store: db, catalog: currentCatalog, keeper, timeZone })
+  const roomService = createRoomService({
+    store: db,
+    roomsRepo,
+    palaceRepo,
+    keeper,
+    catalog: currentCatalog,
+    askModel: askSmallModel,
+    onChanged: () => emitApp({ type: 'rooms_changed' })
+  })
+  const palace = createPalaceView({ store: db, catalog: currentCatalog, keeper, suggestions: roomService.suggestions, timeZone })
   handle('palace:view', (request) => palace.view(request?.focus ?? null))
   handle('palace:place', (change) => palace.place(change))
   handle('palace:reset', ({ roomId, instance }) => palace.reset(roomId, instance))
+  handle('rooms:materialize', async ({ area, name }) => {
+    const roomId = await roomService.materialize(area, name)
+    return palace.view(roomId)
+  })
+  handle('rooms:dismiss', ({ area }) => {
+    roomService.dismiss(area)
+    return palace.view()
+  })
+  handle('rooms:rename', ({ roomId, name }) => {
+    roomService.rename(roomId, name)
+    emitApp({ type: 'rooms_changed' })
+    return palace.view(roomId)
+  })
+  handle('rooms:find', async () => {
+    const tagged = await roomService.findAreas()
+    return { tagged, view: palace.view() }
+  })
   handle('palace:seen', ({ roomId }) => {
     palace.markSeen(roomId)
     return { seen: true }

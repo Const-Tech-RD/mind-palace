@@ -227,3 +227,29 @@ describe('rows for rooms that no longer exist', () => {
     for (const room of view.rooms) expect(room.state.streak.current).toBe(0)
   })
 })
+
+describe('suggested rooms in the palace', () => {
+  const suggestion = (area: string, chats: number) => ({ area, name: area, chats, lastAt: null })
+
+  it('draws the top suggestion as a ghost in the next free cell', () => {
+    const view = buildPalace({
+      catalog,
+      rows: { chats: [], messages: [], goalCompletions: [] },
+      timeZone: TZ,
+      today: TODAY,
+      seen: {},
+      suggestions: [suggestion('finance', 5), suggestion('cooking', 3)]
+    })
+    // The test catalog fills cells [0,0], [-1,0], [0,-1], [-1,-1]; the next is [-2,0].
+    expect(view.ethereal).toEqual({ area: 'finance', name: 'finance', chats: 5, lastAt: null, cell: [-2, 0] })
+    expect(view.floor.ethereal).toMatchObject({ name: 'finance', cell: [-2, 0] })
+    expect(view.suggestions.map((s) => s.area)).toEqual(['finance', 'cooking'])
+  })
+
+  it('has no ghost without suggestions', () => {
+    const view = buildPalace({ catalog, rows: { chats: [], messages: [], goalCompletions: [] }, timeZone: TZ, today: TODAY, seen: {} })
+    expect(view.ethereal).toBeNull()
+    expect(view.floor.ethereal).toBeNull()
+    expect(view.suggestions).toEqual([])
+  })
+})

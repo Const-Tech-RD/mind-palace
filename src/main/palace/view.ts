@@ -3,6 +3,7 @@ import type { Catalog } from '@shared/catalog'
 import { buildPalace, seenKeys, type PalaceView } from '@shared/palace'
 import type { Store } from '../db/client'
 import type { ProgressKeeper } from './progress'
+import type { Suggestion } from '@shared/suggest'
 import { and, eq } from 'drizzle-orm'
 import { checkPlacement, nextPlacement, type Placement, type PlacementChange } from '@shared/placements'
 import { chats, goalCompletions, messages, placements, projects } from '../db/schema'
@@ -40,7 +41,15 @@ export function historyRows(store: Store, timeZone: string): HistoryRows {
   }
 }
 
-export function createPalaceView(deps: { store: Store; catalog: () => Catalog; keeper: ProgressKeeper; timeZone: () => string; now?: () => Date }) {
+export function createPalaceView(deps: {
+  store: Store
+  catalog: () => Catalog
+  keeper: ProgressKeeper
+  /** Areas ready to become rooms; none until the room service is wired. */
+  suggestions?: () => Suggestion[]
+  timeZone: () => string
+  now?: () => Date
+}) {
   const { store, keeper } = deps
   const now = deps.now ?? (() => new Date())
 
@@ -50,6 +59,7 @@ export function createPalaceView(deps: { store: Store; catalog: () => Catalog; k
     keeper.record()
     return buildPalace({
       kept: keeper.kept(),
+      suggestions: deps.suggestions?.() ?? [],
       placements: placementRows(),
       focus,
       catalog,
