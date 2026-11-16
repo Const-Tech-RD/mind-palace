@@ -22,7 +22,7 @@ function historyRows(store: Store): HistoryRows {
   return {
     chats: store.db.select({ id: chats.id, roomId: chats.roomId }).from(chats).all(),
     messages: store.db
-      .select({ chatId: messages.chatId, role: messages.role, createdAt: messages.createdAt })
+      .select({ chatId: messages.chatId, role: messages.role, createdAt: messages.createdAt, localDay: messages.localDay })
       .from(messages)
       .all(),
     goalCompletions: store.db

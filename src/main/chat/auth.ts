@@ -18,16 +18,15 @@ function keychainItemExists(): Promise<boolean> {
 }
 
 /**
- * Whether a Claude Code login exists on this machine, without reading it.
+ * Whether a Claude Code login is stored on this machine, without reading it.
  *
  * This is a presence check only. A login that exists can still be rejected
  * (expired, plan without access); that surfaces on the first message and is
  * tracked by the chat service.
  */
 export async function findClaudeLogin(env: NodeJS.ProcessEnv = process.env): Promise<AuthState> {
-  if (env['CLAUDE_CODE_OAUTH_TOKEN'] || env['ANTHROPIC_API_KEY'] || env['ANTHROPIC_AUTH_TOKEN']) {
-    return { status: 'ok' }
-  }
+  // Tokens and keys in the environment do not count: they are never passed to
+  // the SDK (see env.ts), so only the stored login is checked.
   const configDir = env['CLAUDE_CONFIG_DIR'] || join(homedir(), '.claude')
   if (existsSync(join(configDir, '.credentials.json'))) return { status: 'ok' }
   if (process.platform === 'darwin' && (await keychainItemExists())) return { status: 'ok' }

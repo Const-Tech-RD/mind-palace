@@ -13,6 +13,8 @@ export interface MessageRow {
   role: string
   /** UTC ISO-8601. */
   createdAt: string
+  /** Stored when the message was written; null on rows from before that column existed. */
+  localDay?: LocalDay | null
 }
 
 export interface GoalCompletionRow {
@@ -33,11 +35,12 @@ export interface HistoryRows {
  *
  * - Only user messages make a room day, and they count for the room the chat
  *   is in *now*, so moving a chat moves its whole history.
- * - Message days are derived from the UTC timestamp with the given timezone,
- *   so changing the timezone setting re-buckets every message.
- * - Goal completions keep the local day stored on their row.
- * - The stored `counted` flag is deliberately not read: the engine counts
- *   distinct days itself, which stays right after a reopen (see NOTES.md).
+ * - Messages and goal completions keep the local day stored on their row, so
+ *   changing the timezone setting never rewrites past room days. Only a
+ *   message without a stored day has it derived from its UTC timestamp with
+ *   the given timezone.
+ * - At most one goal completion per room counts each local day; the engine
+ *   counts distinct days itself, which stays right after a reopen.
  */
 export function buildRoomEvents(rows: HistoryRows, timeZone: string): RoomEvent[] {
   const roomOfChat = new Map<string, string>()
@@ -51,7 +54,7 @@ export function buildRoomEvents(rows: HistoryRows, timeZone: string): RoomEvent[
     events.push({
       kind: 'user_message',
       roomId,
-      localDay: localDayOf(message.createdAt, timeZone),
+      localDay: message.localDay ?? localDayOf(message.createdAt, timeZone),
       chatId: message.chatId
     })
   }

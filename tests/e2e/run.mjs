@@ -625,7 +625,7 @@ async function sessionProjects() {
     {
       id: 'P6', area: 'Projects', title: 'Done counts one goal per room per day',
       steps: ['Open Projects.', 'Press Done on "CLI todo tool" (Coding room).', 'Press Done on "Blog engine" (Coding room) the same day.'],
-      expected: 'Both move to Done. The first completion is counted; the second, same room and same day, is stored with `counted = false`.',
+      expected: 'Both move to Done and both completions are stored on the same local day; the engine counts that day once.',
       failShot
     },
     async () => {
@@ -635,9 +635,10 @@ async function sessionProjects() {
       await until(() => sql(userData, "select state from projects where id = 'p-todo'") === 'done', { timeout: 10_000, what: 'the first Done' })
       await action('Blog engine', 'Done')
       await until(() => sql(userData, "select state from projects where id = 'p-blog'") === 'done', { timeout: 10_000, what: 'the second Done' })
-      const rows = sql(userData, "select project_id || ':' || counted from goal_completions order by project_id desc").replace(/\n/g, ', ')
-      expect(rows === 'p-todo:1, p-blog:0', `completions were: ${rows}`)
-      return { observed: `Completions: ${rows} (1 = counted).` }
+      const rows = sql(userData, "select project_id || ':' || local_day from goal_completions order by project_id desc").replace(/\n/g, ', ')
+      const days = new Set(rows.split(', ').map((row) => row.split(':')[1]))
+      expect(rows.startsWith('p-todo:') && rows.includes('p-blog:') && days.size === 1, `completions were: ${rows}`)
+      return { observed: `Completions: ${rows} (the engine counts that day once).` }
     }
   )
 
@@ -712,14 +713,29 @@ async function sessionProjects() {
 
 async function sessionAuth() {
   const userData = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-auth-'))
-  // An API key that cannot be valid: the SDK uses it instead of the stored login.
-  const { app, page } = await launch(userData, { ANTHROPIC_API_KEY: 'sk-ant-api03-mind-palace-e2e-invalid-key' })
+  // A Claude Code config folder holding a login that cannot be valid. The app
+  // passes CLAUDE_CONFIG_DIR to the SDK (and nothing like ANTHROPIC_API_KEY), so
+  // this is the login Claude sees.
+  const configDir = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-claude-'))
+  writeFileSync(
+    join(configDir, '.credentials.json'),
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-mind-palace-e2e-invalid',
+        refreshToken: 'sk-ant-ort01-mind-palace-e2e-invalid',
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        scopes: ['user:inference'],
+        subscriptionType: 'pro'
+      }
+    })
+  )
+  const { app, page } = await launch(userData, { CLAUDE_CONFIG_DIR: configDir })
   const failShot = () => shot(page, 'failure', 'State when the case failed')
 
   const refused = await testCase(
     {
       id: 'L1', area: 'Login', title: 'A login that Claude refuses is explained',
-      steps: ['Start the app with an invalid API key in the environment.', 'Send "hi".'],
+      steps: ['Start the app with CLAUDE_CONFIG_DIR pointing at a folder whose stored login is invalid.', 'Send "hi".'],
       expected: 'Instead of an answer, a screen says Claude did not accept the login, gives Claude\'s reason and the sign-in command.',
       failShot
     },
@@ -767,6 +783,7 @@ async function sessionAuth() {
 
   await app.close()
   rmSync(userData, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
 }
 
 // ---------------------------------------------------------------- S4: reminders
@@ -932,7 +949,7 @@ async function sessionPalace() {
   const doneProject = (id, title, room, chatId, dayOffset) =>
     `insert into projects (id, title, room_id, origin_chat_id, state, last_activity_at, created_at, closed_at) values (${q(id)}, ${q(title)}, ${q(room)}, ${q(chatId)}, 'done', ${q(daysAgo(dayOffset))}, ${q(daysAgo(10))}, ${q(daysAgo(dayOffset))});` +
     `insert into project_chats (project_id, chat_id) values (${q(id)}, ${q(chatId)});` +
-    `insert into goal_completions (id, project_id, room_id, local_day, counted) values (${q(`g-${id}`)}, ${q(id)}, ${q(room)}, ${q(localDay(dayOffset))}, 1);`
+    `insert into goal_completions (id, project_id, room_id, local_day) values (${q(`g-${id}`)}, ${q(id)}, ${q(room)}, ${q(localDay(dayOffset))});`
 
   sql(
     userData,
