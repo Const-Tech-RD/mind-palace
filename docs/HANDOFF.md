@@ -38,3 +38,4 @@ Read this first, then `plan-v2.md`. The plan is the source of truth for scope an
 - `asset-spec.md` — sprite contract v0.2.
 - `style-guide.md` — tokens and components.
 - `research-borrow.md` — what we take from StarNet, Pixel Agents and OpenClaw Office, with source paths.
+- `themes/sandstone-sanctum.md` — a designed, unscheduled theme; keep colours as tokens so themes can swap them.
