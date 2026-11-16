@@ -8,6 +8,7 @@ import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type Flo
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
+import { slotAt } from '@shared/editMode'
 import { darknessOf, FLICKER, flickerOn, LIGHTS_ON_MS, nextFlickerDelay } from '@shared/flicker'
 import type { DecayLevel } from '@shared/engine'
 import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
@@ -163,6 +164,35 @@ function drawDecay(layer: Container, room: FloorRoom): void {
   layer.addChild(g)
 }
 
+/** Room editor: outlines the slots the chosen item can go to, on the floor, the desk or the wall. */
+function drawTargets(layer: Container, room: FloorRoom, slots: FloorView['slots'], ids: readonly string[]): void {
+  const [ox, oy] = room.origin
+  const g = new Graphics()
+  for (const id of ids) {
+    const slot = slots[id]
+    if (!slot) continue
+    if (slot.wall) {
+      const from = slot.from_tile ?? 0
+      const to = from + (slot.width ?? 1)
+      const z0 = slot.bottom_z ?? 2
+      const z1 = z0 + 1.4
+      const corners =
+        slot.wall === 'right'
+          ? [iso(ox + from, oy, z0), iso(ox + to, oy, z0), iso(ox + to, oy, z1), iso(ox + from, oy, z1)]
+          : [iso(ox, oy + from, z0), iso(ox, oy + to, z0), iso(ox, oy + to, z1), iso(ox, oy + from, z1)]
+      g.poly(pts(corners)).fill({ color: P.gold, alpha: 0.18 }).stroke({ color: P.gold, width: 2, alpha: 0.9 })
+      continue
+    }
+    if (!slot.tile) continue
+    const [tx, ty] = slot.tile
+    const [w, d] = slot.kind === 'desk_surface' ? [1, 1] : (slot.footprint ?? [1, 1])
+    const z = slot.kind === 'desk_surface' ? 1.02 : 0.02
+    const corners = [iso(ox + tx, oy + ty, z), iso(ox + tx + w, oy + ty, z), iso(ox + tx + w, oy + ty + d, z), iso(ox + tx, oy + ty + d, z)]
+    g.poly(pts(corners)).fill({ color: P.gold, alpha: 0.18 }).stroke({ color: P.gold, width: 2, alpha: 0.9 })
+  }
+  layer.addChild(g)
+}
+
 /** Greys the room from level 1 and dims it from level 3; `light` overrides the darkness (flicker, lights back on). */
 function decayFilter(level: DecayLevel, light?: number): ColorMatrixFilter | null {
   const dark = light ?? darknessOf(level)
@@ -228,7 +258,9 @@ export function PalaceCanvas({
   agents,
   onPick,
   onLabels,
-  onHover
+  onHover,
+  highlights,
+  onSlot
 }: {
   floor: FloorView
   /** The room zoomed into, or null for the whole palace. */
@@ -241,6 +273,9 @@ export function PalaceCanvas({
   onLabels: (labels: CanvasLabel[]) => void
   /** The room under the pointer, for the tooltip; null when none. */
   onHover?: (roomId: string | null) => void
+  /** Room editor: slots of the focused room to outline, and what to do when one is clicked. */
+  highlights?: readonly string[]
+  onSlot?: (slotId: string) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
@@ -265,8 +300,8 @@ export function PalaceCanvas({
     strolling: boolean
   }>({ at: [LOBBY[0], LOBBY[1]], path: [], room: null, home: null, roomId: null, nextStroll: 0, strolling: false })
   const helpers = useRef<HelperSprite[]>([])
-  const latest = useRef({ floor, focus, onPick, onLabels, agents })
-  latest.current = { floor, focus, onPick, onLabels, agents }
+  const latest = useRef({ floor, focus, onPick, onLabels, agents, highlights, onSlot })
+  latest.current = { floor, focus, onPick, onLabels, agents, highlights, onSlot }
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
   const decayLevels = useRef(new Map<string, DecayLevel>())
   const roomLayers = useRef(new Map<string, Container>())
@@ -448,6 +483,7 @@ export function PalaceCanvas({
       s.rooms.addChild(layer)
       const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id)
       drawDecay(layer, room)
+      if (focus === room.id && highlights && highlights.length > 0) drawTargets(layer, room, floor.slots, highlights)
       const before = decayLevels.current.get(room.id)
       decayLevels.current.set(room.id, room.decay)
       const filter = decayFilter(room.decay)
@@ -486,7 +522,7 @@ export function PalaceCanvas({
         cast.addChild(dot)
       }
     }
-  }, [ready, floor, hover, focus, agents])
+  }, [ready, floor, hover, focus, agents, highlights])
 
   // A mostly dark room's light flickers on now and then (never with reduced motion).
   useEffect(() => {
@@ -595,6 +631,15 @@ export function PalaceCanvas({
       if (wasDrag) return
       const room = roomUnder(event)
       if (room && room !== latest.current.focus) latest.current.onPick(room)
+      else if (room && room === latest.current.focus && latest.current.onSlot) {
+        // Room editor: a click on an outlined floor slot places the chosen item there.
+        const focused = latest.current.floor.rooms.find((r) => r.id === room)
+        const box = el.getBoundingClientRect()
+        const cam = camera.current.now
+        const tile = tileAt({ x: (event.clientX - box.left - cam.x) / cam.scale, y: (event.clientY - box.top - cam.y) / cam.scale })
+        const slot = focused ? slotAt(latest.current.floor.slots, tile.x - focused.origin[0], tile.y - focused.origin[1]) : null
+        if (slot && latest.current.highlights?.includes(slot)) latest.current.onSlot(slot)
+      }
     }
     const leave = (): void => setHover(null)
     const wheel = (event: WheelEvent): void => {

@@ -9,7 +9,7 @@
  * down-right on screen, y down-left, z is up. That matches the room layout in
  * rules.json, where x runs along a room's right wall and y along its left wall.
  */
-import type { Catalog, ShellTier } from './catalog'
+import type { Catalog, Rules, ShellTier } from './catalog'
 import type { DecayLevel, PlacedItem, RoomState } from './engine'
 import type { ResolvedItem } from './placements'
 
@@ -107,6 +107,8 @@ export interface FloorView {
   rooms: FloorRoom[]
   /** The two hallways, as rectangles of tiles; they cross in the lobby. */
   halls: Array<{ x: number; y: number; w: number; d: number }>
+  /** The slot layout shared by every room, in room tiles: the room editor hit-tests clicks against it. */
+  slots: Rules['layout']['slots']
   /** Screen box of the whole floor including full-height walls, in logical pixels. */
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
 }
@@ -280,6 +282,7 @@ export function buildFloor(
   return {
     tiles: PALACE_TILES,
     rooms: floorRooms,
+    slots: catalog.rules.layout.slots,
     halls: [
       { x: ROOM_TILES, y: 0, w: HALL_TILES, d: PALACE_TILES },
       { x: 0, y: ROOM_TILES, w: PALACE_TILES, d: HALL_TILES }

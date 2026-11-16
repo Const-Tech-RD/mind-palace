@@ -181,8 +181,95 @@ async function capture(name, fixture) {
   }
 }
 
+/**
+ * The room editor end to end: move the chair, hide the crate... then restart
+ * and see both kept; then a new streak day unlocks the monitor, which lands
+ * on the desk without moving anything the user arranged.
+ */
+async function editorRun() {
+  const userData = mkdtempSync(join(tmpdir(), 'mind-palace-shots-editor-'))
+  const files = []
+  const checks = []
+  const check = (ok, what) => checks.push(`${ok ? 'PASS' : 'FAIL'} ${what}`)
+  const where = (view) => {
+    const coding = view.rooms.find((r) => r.id === 'coding')
+    return { placed: Object.fromEntries(coding.placed.map((p) => [p.instance, p.slot])), inventory: Object.fromEntries(coding.inventory.map((i) => [i.instance, i.reason])) }
+  }
+  try {
+    let { app } = await launch(userData)
+    await quit(app)
+    let db = new DatabaseSync(join(userData, 'mind-palace.sqlite'))
+    db.prepare("insert or replace into settings (key, value) values ('timezone', ?)").run(TZ)
+    streak(db, 'coding', 2) // desk, chair (crate replaced), laptop
+    db.close()
+
+    let run = await launch(userData)
+    let page = run.page
+    await settle(page)
+    await page.locator('[data-agent="coding"]').first().click()
+    await settle(page)
+    await page.getByRole('button', { name: /Arrange room/ }).click()
+    const inRoom = page.getByRole('list', { name: 'In the room' })
+    await inRoom.getByRole('listitem').filter({ hasText: 'Chair' }).getByRole('button', { name: 'Move' }).click()
+    await settle(page, 400)
+    await page.screenshot({ path: join(outDir, 'editor-targets.png') })
+    files.push('editor-targets.png')
+    await page.getByRole('button', { name: 'Beside the seat' }).click()
+    await settle(page, 600)
+    // The crate waits in the inventory: put it back on the seat the chair left.
+    await page.getByRole('list', { name: 'Inventory' }).getByRole('listitem').filter({ hasText: 'Crate' }).getByRole('button', { name: 'Move' }).click()
+    await page.getByRole('button', { name: 'The seat' }).click()
+    await settle(page, 600)
+    await page.screenshot({ path: join(outDir, 'editor-arranged.png') })
+    files.push('editor-arranged.png')
+    await quit(run.app)
+
+    run = await launch(userData)
+    page = run.page
+    await settle(page)
+    const afterRestart = where(await page.evaluate(() => window.mindPalace.invoke('palace:view', { focus: 'coding' })))
+    check(afterRestart.placed['base_chair@seat#0'] === 'beside_seat', 'the moved chair is still beside the seat after a restart')
+    check(afterRestart.placed['base_crate@seat#0'] === 'seat', 'the crate the user put back is still on the seat')
+    await quit(run.app)
+
+    // A third streak day unlocks the monitor (it replaces the laptop on desk_center).
+    db = new DatabaseSync(join(userData, 'mind-palace.sqlite'))
+    db.prepare("insert into messages (id, chat_id, role, content, created_at, local_day) values ('fx-extra', 'fx-coding', 'user', 'hi', ?, ?)").run(iso(2), localDay(iso(2)))
+    db.close()
+    run = await launch(userData)
+    page = run.page
+    await settle(page)
+    const afterUnlock = where(await page.evaluate(() => window.mindPalace.invoke('palace:view', { focus: 'coding' })))
+    check(afterUnlock.placed['coding_monitor@desk_center#0'] === 'desk_center', 'the new monitor lands on the desk')
+    check(afterUnlock.placed['base_chair@seat#0'] === 'beside_seat' && afterUnlock.placed['base_crate@seat#0'] === 'seat', 'nothing the user arranged moved')
+    await page.locator('[data-agent="coding"]').first().click()
+    await settle(page)
+    await page.screenshot({ path: join(outDir, 'editor-after-unlock.png') })
+    files.push('editor-after-unlock.png')
+    await quit(run.app)
+  } finally {
+    try {
+      rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+    } catch {
+      // Left behind for a moment by Windows; harmless.
+    }
+  }
+  return { files, checks }
+}
+
 mkdirSync(outDir, { recursive: true })
 const wanted = process.argv.slice(2)
+if (wanted.includes('editor')) {
+  try {
+    const { files, checks } = await editorRun()
+    console.log(`editor: ${files.join(', ')}`)
+    for (const line of checks) console.log(line)
+    if (checks.some((c) => c.startsWith('FAIL'))) process.exitCode = 1
+  } catch (error) {
+    console.log(`editor: FAILED ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
+    process.exitCode = 1
+  }
+}
 for (const [name, fixture] of Object.entries(fixtures)) {
   if (wanted.length > 0 && !wanted.includes(name)) continue
   try {

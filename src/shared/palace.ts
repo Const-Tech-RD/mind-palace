@@ -5,6 +5,7 @@
  */
 import type { Catalog, ShellTier } from './catalog'
 import { buildFloor, type FloorView } from './floor'
+import { dropTargets } from './editMode'
 import { resolvePlacements, type InventoryItem, type Placement, type ResolvedItem } from './placements'
 import {
   buildRoomEvents,
@@ -31,6 +32,8 @@ export interface PalaceRoom {
   /** Earned items not in the room right now, with the reason. */
   inventory: InventoryItem[]
   decay: RoomState['decay']
+  /** For the room editor, which has no catalog of its own: free slots per earned item, art variants per item. */
+  editor: { targets: Record<string, string[]>; variants: Record<string, string[]> }
 }
 
 export interface PalaceView {
@@ -79,7 +82,14 @@ export function buildPalace(input: {
     const state = computeRoomState(room.id, events, input.catalog, input.today)
     const fresh = newSince(input.seen[room.id] ?? null, state)
     const resolved = resolvePlacements(state, input.placements ?? [], input.catalog)
+    const earned = [...resolved.placed.map((p) => p.instance), ...resolved.inventory.map((i) => i.instance)]
+    const items = new Set([...resolved.placed.map((p) => p.item), ...resolved.inventory.map((i) => i.item)])
+    const editor = {
+      targets: Object.fromEntries(earned.map((instance) => [instance, dropTargets(instance, resolved, input.catalog)])),
+      variants: Object.fromEntries([...items].map((item) => [item, input.catalog.items[item]?.variants ?? []]))
+    }
     return {
+      editor,
       id: room.id,
       name: room.name,
       accent: room.accent,

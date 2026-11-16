@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import { ActivityStrip } from './ActivityStrip'
 import { PalaceCanvas, type CanvasLabel } from './PalaceCanvas'
 import { PalaceList, RoomSummary } from './PalaceList'
+import { InventoryDrawer } from './InventoryDrawer'
 import { ROOM_IMAGE } from './roomArt'
 
 const MAX_TROPHIES = 5
@@ -160,6 +161,15 @@ export function PalaceView() {
   const [labels, setLabels] = useState<CanvasLabel[]>([])
   const refreshPalace = useStore((s) => s.refreshPalace)
   const [hovered, setHovered] = useState<string | null>(null)
+  const place = useStore((s) => s.place)
+  const resetPlacement = useStore((s) => s.resetPlacement)
+  // Room editor: open while a room is in view; `selected` is the item being moved.
+  const [editing, setEditing] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  useEffect(() => {
+    setEditing(false)
+    setSelected(null)
+  }, [roomId])
   // Map or plain list, remembered per viewer; reduced motion starts on the list until someone chooses.
   const [mode, setMode] = useState<'scene' | 'list'>(() => {
     try {
@@ -212,7 +222,8 @@ export function PalaceView() {
   }, [room?.id, showPalace]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fresh = useMemo(() => new Set(room?.newItems ?? []), [room])
-  const furniture = room?.state.items.filter((item) => item.source !== 'trophy') ?? []
+  // What stands in the room as the user arranged it (hidden and replaced things are in the inventory).
+  const furniture = room?.placed.filter((item) => item.source !== 'trophy') ?? []
   const hasShelf = room?.state.items.some((item) => item.item === 'trophy_shelf') ?? false
   const news = room
     ? [
@@ -285,7 +296,16 @@ export function PalaceView() {
                     <PalaceList rooms={palace.rooms} projectTitle={projectTitle} onOpen={(id) => void showPalace(id)} />
                   </div>
                 ) : (
-                  <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick} onLabels={setLabels} onHover={setHovered} />
+                  <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick}
+                    onLabels={setLabels}
+                    onHover={setHovered}
+                    highlights={editing && selected && room ? (room.editor.targets[selected] ?? []) : undefined}
+                    onSlot={(slot) => {
+                      if (!room || !selected) return
+                      void place({ roomId: room.id, instance: selected, slot })
+                      setSelected(null)
+                    }}
+                  />
                 )}
 
                 {/* Room names float over the floor; they are also the keyboard way into a room. */}
@@ -439,15 +459,35 @@ export function PalaceView() {
                 <span className="sr-only" role="img" aria-label={natoRoomName ? `Nato, in the ${natoRoomName}` : 'Nato, in the lobby'} />
               </figure>
 
-              {room ? (
+              {room && editing ? (
+                <div key="editor" className="mt-5">
+                  <InventoryDrawer
+                    room={room}
+                    roomIds={roomIds}
+                    selected={selected}
+                    onSelect={setSelected}
+                    onPlace={(instance, slot) => {
+                      void place({ roomId: room.id, instance, slot, hidden: false })
+                      setSelected(null)
+                    }}
+                    onVariant={(instance, variant) => void place({ roomId: room.id, instance, variant })}
+                    onHide={(instance, hidden) => void place({ roomId: room.id, instance, hidden })}
+                    onReset={(instance) => void resetPlacement(room.id, instance)}
+                    onDone={() => {
+                      setEditing(false)
+                      setSelected(null)
+                    }}
+                  />
+                </div>
+              ) : room ? (
                 <section key="furniture" className="mt-5">
                   <h3 className="text-xs font-medium tracking-wide text-muted uppercase">In this room</h3>
                   <ul className="mt-2 flex flex-wrap gap-2" data-testid="room-furniture">
                     {furniture.map((item) => {
-                      const isNew = fresh.has(itemKey(item))
+                      const isNew = fresh.has(item.instance)
                       return (
                         <li
-                          key={itemKey(item)}
+                          key={item.instance}
                           className={`rounded-full px-3 py-1 text-sm ${isNew ? 'palace-new bg-gold font-medium text-ink' : 'bg-raised text-paper'}`}
                         >
                           {itemLabel(item.item, roomIds)}
@@ -457,6 +497,13 @@ export function PalaceView() {
                     })}
                   </ul>
                   <p className="mt-3 text-xs text-muted">Each piece is a placeholder block until its drawing exists. The walls and floor warm up as the streak grows.</p>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="mt-3 rounded-full border border-brass/50 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
+                  >
+                    Arrange room{room.inventory.length > 0 ? ` · ${room.inventory.length} in the inventory` : ''}
+                  </button>
                 </section>
               ) : (
                 <p key="where" className="mt-4 text-center text-sm text-muted" role="status">

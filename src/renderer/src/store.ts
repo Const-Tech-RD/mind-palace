@@ -3,6 +3,7 @@ import { addActivity, chatChanges, SORTING_ROOM, type ActivityItem, type Activit
 import { titleFromMessage, type AuthState, type ChatEvent, type ChatMessage, type ChatSummary } from '@shared/chat'
 import type { AppEvent, AppStatus } from '@shared/ipc'
 import type { PalaceView } from '@shared/palace'
+import type { PlacementChange } from '@shared/placements'
 import type { ProjectAction, ProjectSummary } from '@shared/projects'
 import type { ReminderItem, ReminderResponse } from '@shared/reminders'
 
@@ -81,6 +82,10 @@ interface State {
   /** Starts a new chat that will be filed in this room. */
   startChatIn(roomId: string): void
   refreshPalace(): Promise<void>
+  /** Moves, re-skins or hides an item in a room (the room editor). */
+  place(change: PlacementChange): Promise<void>
+  /** Puts an item back where the catalog puts it. */
+  resetPlacement(roomId: string, instance: string): Promise<void>
   /** Marks the room as looked at; what is highlighted as new stays on screen until the next refresh. */
   markRoomSeen(roomId: string): Promise<void>
   showReminders(): Promise<void>
@@ -336,6 +341,22 @@ export const useStore = create<State>((set, get) => ({
   async refreshPalace() {
     try {
       set({ palace: await window.mindPalace.invoke('palace:view', { focus: get().palaceRoomId }), seenRooms: [] })
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  async place(change) {
+    try {
+      set({ palace: await window.mindPalace.invoke('palace:place', change), appError: null })
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  async resetPlacement(roomId, instance) {
+    try {
+      set({ palace: await window.mindPalace.invoke('palace:reset', { roomId, instance }), appError: null })
     } catch (error) {
       set({ appError: describe(error) })
     }
