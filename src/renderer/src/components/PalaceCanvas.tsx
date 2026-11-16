@@ -4,7 +4,7 @@ import 'pixi.js/unsafe-eval'
 import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
-import { iso, LOBBY as LOBBY_AT, PAINTED_WALL, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
+import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
 import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
 
@@ -253,7 +253,7 @@ export function PalaceCanvas({
     let box = latest.current.floor.bounds
     if (room) {
       const [ox, oy] = room.origin
-      const tall = ROOM_CUT[room.id] ? PAINTED_WALL : room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1.6
+      const tall = ROOM_CUT[room.id] ? WALL_FULL : room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1.6
       const corners = [iso(ox, oy, tall), iso(ox + ROOM_TILES, oy, tall), iso(ox, oy + ROOM_TILES), iso(ox + ROOM_TILES, oy + ROOM_TILES)]
       box = {
         minX: Math.min(...corners.map((c) => c.x)),
@@ -392,7 +392,7 @@ export function PalaceCanvas({
           last = key
           latest.current.onLabels(
             latest.current.floor.rooms.map((room) => {
-              const tall = ROOM_CUT[room.id] ? PAINTED_WALL : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
+              const tall = ROOM_CUT[room.id] ? WALL_FULL : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
               const at = iso(room.origin[0], room.origin[1], tall - 0.6)
               return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
             })

@@ -10,22 +10,16 @@
  * rules.json, where x runs along a room's right wall and y along its left wall.
  */
 import type { Catalog, ShellTier } from './catalog'
-import type { PlacedItem, RoomState } from './engine'
+import type { DecayLevel, PlacedItem, RoomState } from './engine'
+import type { ResolvedItem } from './placements'
 
 /** Logical pixels (asset spec v0.2 section 1): a 64 x 32 floor diamond, 32 px per unit of height. */
 export const TILE = { w: 64, h: 32, unit: 32 } as const
 export const ROOM_TILES = 8
-/**
- * Plan v2 asks for 2-tile hallways. The rooms are shown as their paintings,
- * whose back walls are almost five units tall; at 2 tiles a front room's walls
- * would cover the floor of the room behind it. Five tiles is the narrowest
- * hallway at which no painted wall reaches another room's floor.
- */
-export const HALL_TILES = 5
+/** Plan v2 and the asset spec: 2-tile hallways. Walls facing a hallway are low, so none hides a room behind. */
+export const HALL_TILES = 2
 /** The middle of the lobby, where the hallways cross. */
 export const LOBBY = ROOM_TILES + HALL_TILES / 2
-/** How tall a painted room's back walls are, in units (measured on the cut-outs). */
-export const PAINTED_WALL = 4.8
 export const PALACE_TILES = ROOM_TILES * 2 + HALL_TILES
 const FAR = ROOM_TILES + HALL_TILES
 
@@ -67,6 +61,11 @@ export interface FloorBlock {
   isNew: boolean
   /** Draw order inside the room: lower first. */
   depth: number
+  /** The engine's key for the item (`item@defaultSlot#index`), stable when the user moves it. */
+  instance: string
+  variant: string | null
+  /** Hangs on (or stands on a shelf on) one of the room's low walls. */
+  onLowWall: boolean
 }
 
 export interface FloorWall {
@@ -96,6 +95,11 @@ export interface FloorRoom {
   helperSpots: ReadonlyArray<readonly [number, number]>
   /** Draw order between rooms: back to front. */
   order: number
+  decay: DecayLevel
+  /** Wall items left out of the whole-palace view because their wall is low; shown when the room is focused. */
+  hiddenWallItems: number
+  /** Where the room's light glows from: its desk_center item, else the middle of the room. */
+  lightAt: readonly [number, number]
 }
 
 export interface FloorView {
@@ -142,7 +146,7 @@ export function placeBlock(
   origin: readonly [number, number],
   placed: PlacedItem,
   items: readonly PlacedItem[]
-): Omit<FloorBlock, 'isNew' | 'key'> | null {
+): Omit<FloorBlock, 'isNew' | 'key' | 'instance' | 'variant' | 'onLowWall'> | null {
   const slots = catalog.rules.layout.slots as Record<string, Slot>
   const slot = slots[placed.slot]
   if (!slot) return null
@@ -191,10 +195,11 @@ export function placeBlock(
   return { ...base, x: ox + tx, y: oy + ty, w, d, z: 0, h, depth }
 }
 
-function wallsOf(origin: readonly [number, number]): FloorWall[] {
+function wallsOf(origin: readonly [number, number], focused: boolean): FloorWall[] {
   const [ox, oy] = origin
-  const outerRight = oy === 0
-  const outerLeft = ox === 0
+  // A focused room's back walls rise to full height so what hangs on them shows (plan decision 2).
+  const outerRight = oy === 0 || focused
+  const outerLeft = ox === 0 || focused
   const walls: FloorWall[] = [
     // Back walls: full height on the outside of the palace, low with a doorway onto a hallway.
     { along: 'x', x: ox, y: oy, length: ROOM_TILES, height: outerRight ? WALL_FULL : WALL_LOW, doorway: outerRight ? null : DOORWAY, front: false },
@@ -210,8 +215,17 @@ function wallsOf(origin: readonly [number, number]): FloorWall[] {
 /** The whole floor for the given room states. Rooms the layout has no place for are left out. */
 export function buildFloor(
   catalog: Catalog,
-  rooms: ReadonlyArray<{ id: string; name: string; accent: string; state: RoomState; newItems: readonly string[] }>,
-  itemKey: (item: PlacedItem) => string
+  rooms: ReadonlyArray<{
+    id: string
+    name: string
+    accent: string
+    state: RoomState
+    newItems: readonly string[]
+    /** Where each item stands after the user's placements. */
+    placed: readonly ResolvedItem[]
+    decay: DecayLevel
+  }>,
+  focus: string | null = null
 ): FloorView {
   const slots = catalog.rules.layout.slots as Record<string, Slot>
   const seatTile = slots['seat']?.tile ?? [3, 1]
@@ -220,13 +234,24 @@ export function buildFloor(
     const origin = ROOM_ORIGIN[room.id]
     if (!origin) continue
     const fresh = new Set(room.newItems)
+    const focused = focus === room.id
+    const lowWall = (side: 'left' | 'right' | undefined): boolean =>
+      side === 'right' ? origin[1] !== 0 : side === 'left' ? origin[0] !== 0 : false
     const blocks: FloorBlock[] = []
-    for (const placed of room.state.items) {
-      const block = placeBlock(catalog, room.id, origin, placed, room.state.items)
+    let hiddenWallItems = 0
+    for (const placed of room.placed) {
+      const block = placeBlock(catalog, room.id, origin, placed, room.placed)
       if (!block) continue
-      const key = itemKey(placed)
-      blocks.push({ ...block, key, isNew: fresh.has(key) })
+      const slot = slots[placed.slot]
+      const side = slot?.wall ?? (slot?.host ? slots[slot.host]?.wall : undefined)
+      const onLowWall = lowWall(side)
+      if (onLowWall && !focused) {
+        hiddenWallItems += 1
+        continue
+      }
+      blocks.push({ ...block, key: placed.instance, instance: placed.instance, variant: placed.variant, onLowWall, isNew: fresh.has(placed.instance) })
     }
+    const light = blocks.find((b) => b.slot === 'desk_center')
     blocks.sort((a, b) => a.depth - b.depth || a.z - b.z)
     floorRooms.push({
       id: room.id,
@@ -235,7 +260,7 @@ export function buildFloor(
       origin,
       shell: room.state.shell,
       streak: room.state.streak.current,
-      walls: wallsOf(origin),
+      walls: wallsOf(origin, focused),
       blocks,
       seat: [origin[0] + seatTile[0], origin[1] + seatTile[1]],
       helperSpots: [
@@ -243,12 +268,15 @@ export function buildFloor(
         [origin[0] + 3, origin[1] + 5],
         [origin[0] + 6, origin[1] + 6]
       ],
-      order: origin[0] + origin[1]
+      order: origin[0] + origin[1],
+      decay: room.decay,
+      hiddenWallItems,
+      lightAt: light ? [light.x + light.w / 2, light.y + light.d / 2] : [origin[0] + ROOM_TILES / 2, origin[1] + ROOM_TILES / 2]
     })
   }
   floorRooms.sort((a, b) => a.order - b.order || a.origin[0] - b.origin[0])
 
-  const corners = [iso(0, 0, PAINTED_WALL), iso(PALACE_TILES, 0, PAINTED_WALL), iso(0, PALACE_TILES, PAINTED_WALL), iso(PALACE_TILES, PALACE_TILES)]
+  const corners = [iso(0, 0, WALL_FULL), iso(PALACE_TILES, 0, WALL_FULL), iso(0, PALACE_TILES, WALL_FULL), iso(PALACE_TILES, PALACE_TILES)]
   return {
     tiles: PALACE_TILES,
     rooms: floorRooms,

@@ -89,7 +89,8 @@ export interface IpcContract {
   }
   /** Every room's state from the progression engine, with what is new since it was last looked at. */
   'palace:view': {
-    request: void
+    /** `focus`: the room zoomed into; its back walls rise and show what hangs on them. */
+    request: { focus?: string | null } | void
     response: PalaceView
   }
   /** Moves an item to a slot, picks its variant, or hides it (only the fields given change). */

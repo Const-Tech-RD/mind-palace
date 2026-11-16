@@ -43,9 +43,11 @@ export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZon
   const { store, catalog } = deps
   const now = deps.now ?? (() => new Date())
 
-  function view(): PalaceView {
+  function view(focus: string | null = null): PalaceView {
     const timeZone = deps.timeZone()
     return buildPalace({
+      placements: placementRows(),
+      focus,
       catalog,
       rows: historyRows(store, timeZone),
       timeZone,
@@ -78,12 +80,12 @@ export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZon
         updatedAt: now().toISOString()
       }
       store.db.insert(placements).values(next).onConflictDoUpdate({ target: [placements.roomId, placements.instance], set: next }).run()
-      return view()
+      return view(change.roomId)
     },
     /** Gives an item back to the catalog: its default slot, default look, shown. */
     reset(roomId: string, instance: string): PalaceView {
       store.db.delete(placements).where(and(eq(placements.roomId, roomId), eq(placements.instance, instance))).run()
-      return view()
+      return view(roomId)
     },
     /** Stores what the room holds now, so only later gains show as new. */
     markSeen(roomId: string): void {
