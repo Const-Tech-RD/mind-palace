@@ -390,7 +390,7 @@ export function Momentum({ days, pace, quietSince }: { days: Array<{ day: LocalD
   const max = Math.max(1, ...days.map((d) => d.count))
   const width = 300
   const step = days.length === 0 ? 0 : width / days.length
-  const bar = Math.max(2, Math.min(14, step - 4))
+  const bar = Math.max(3, Math.min(14, step - 4))
   const total = days.reduce((n, d) => n + d.count, 0)
   const active = days.filter((d) => d.count > 0).length
   const summary = days.length === 0 ? '' : `Milestones per day, ${showDay(days[0]!.day)} to today: ${days.map((d) => d.count).join(', ')}`
