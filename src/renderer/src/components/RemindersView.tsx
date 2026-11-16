@@ -1,4 +1,5 @@
 import { REMINDER_RESPONSES, REMINDER_RESPONSE_LABEL, type ReminderItem } from '@shared/reminders'
+import { accentCss } from '../theme'
 import { useStore } from '../store'
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' })
@@ -13,7 +14,7 @@ function ReminderCard({ item }: { item: ReminderItem }) {
         <h3 className="min-w-0 flex-1 truncate font-medium">{item.projectTitle}</h3>
         {room && (
           <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-paper/10 px-2.5 py-0.5 text-xs">
-            <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
+            <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(room.accent) }} />
             {room.name}
           </span>
         )}

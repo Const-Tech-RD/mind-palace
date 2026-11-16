@@ -40,12 +40,13 @@ export function historyRows(store: Store, timeZone: string): HistoryRows {
   }
 }
 
-export function createPalaceView(deps: { store: Store; catalog: Catalog; keeper: ProgressKeeper; timeZone: () => string; now?: () => Date }) {
-  const { store, catalog, keeper } = deps
+export function createPalaceView(deps: { store: Store; catalog: () => Catalog; keeper: ProgressKeeper; timeZone: () => string; now?: () => Date }) {
+  const { store, keeper } = deps
   const now = deps.now ?? (() => new Date())
 
   function view(focus: string | null = null): PalaceView {
     const timeZone = deps.timeZone()
+    const catalog = deps.catalog()
     keeper.record()
     return buildPalace({
       kept: keeper.kept(),
@@ -71,7 +72,7 @@ export function createPalaceView(deps: { store: Store; catalog: Catalog; keeper:
       const room = view().rooms.find((r) => r.id === change.roomId)
       if (!room) throw new Error(`There is no room "${change.roomId}".`)
       const rows = placementRows()
-      const check = checkPlacement(change, room.state, rows, catalog)
+      const check = checkPlacement(change, room.state, rows, deps.catalog())
       if (!check.ok) throw new Error(check.reason)
       const current = rows.find((r) => r.roomId === change.roomId && r.instance === change.instance)
       const next = { ...nextPlacement(current, change), updatedAt: now().toISOString() }

@@ -16,7 +16,8 @@ import type { PalaceRepo } from './repo'
 
 export interface ClassifierDeps {
   repo: PalaceRepo
-  rooms: ClassifierRoom[]
+  /** The rooms that exist now; rooms are made while the app runs. */
+  rooms: () => ClassifierRoom[]
   fallbackRoomId: string
   messagesOf: (chatId: string) => ClassifierMessage[]
   /** One JSON question to the model; the real one is `askJson` bound to Haiku. */
@@ -79,7 +80,7 @@ export function createClassifier(deps: ClassifierDeps) {
     try {
       const openProjects = repo.openProjects()
       const outcome = await classifyTranscript({
-        rooms: deps.rooms,
+        rooms: deps.rooms(),
         fallbackRoomId: deps.fallbackRoomId,
         messages,
         openProjects,

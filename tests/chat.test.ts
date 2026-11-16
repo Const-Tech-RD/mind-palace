@@ -465,3 +465,13 @@ describe('chat service', () => {
     expect(h.events.map((e) => e.type)).toEqual(['started', 'delta'])
   })
 })
+
+describe('group accents', () => {
+  it('are token names, so themes can swap them', () => {
+    const groups = groupChatsByRoom(
+      [{ id: 'x', title: 'x', roomId: null, createdAt: '2026-11-15T10:00:00.000Z', lastMessageAt: null } as never],
+      [{ id: 'mailroom', name: 'Mail room', accent: 'mp-room-mailroom' }]
+    )
+    for (const group of groups) expect(group.accent).toMatch(/^mp-room-[a-z0-9-]+$/)
+  })
+})

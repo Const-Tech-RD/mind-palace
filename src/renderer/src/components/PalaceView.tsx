@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { accentCss } from '../theme'
 import { AGENT_LABEL, roomAgents, type RoomAgent } from '@shared/agents'
 import { activeToday, currentRoomOf, decayText, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
 import { useStore } from '../store'
@@ -261,7 +262,7 @@ export function PalaceView() {
                   active ? 'bg-raised text-paper' : 'text-paper/70 hover:bg-paper/5'
                 }`}
               >
-                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: r.accent }} />
+                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(r.accent) }} />
                 {r.name}
                 {isNew && !active && <span className="size-1.5 rounded-full bg-gold" aria-label="something new" />}
               </button>
@@ -352,9 +353,9 @@ export function PalaceView() {
                         )}
                         <span
                           className="flex items-center gap-1.5 rounded-full border border-brass/50 bg-walnut/90 px-2.5 py-1 text-xs shadow-lg backdrop-blur"
-                          style={today ? { boxShadow: `0 0 0 1px ${r.accent}, 0 0 14px -2px ${r.accent}` } : undefined}
+                          style={today ? { boxShadow: `0 0 0 1px ${accentCss(r.accent)}, 0 0 14px -2px ${accentCss(r.accent)}` } : undefined}
                         >
-                          <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: r.accent }} />
+                          <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: accentCss(r.accent) }} />
                           <span className="font-semibold">{r.name}</span>
                           {onWalls > 0 && (
                             <span className="text-[10px] text-muted" title="On a low wall: shown when you open the room">
@@ -440,7 +441,7 @@ export function PalaceView() {
                       </p>
                     )}
                     <figcaption className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-brass/50 bg-walnut/85 px-3 py-1 text-xs backdrop-blur">
-                      <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
+                      <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(room.accent) }} />
                       {SHELL_LABEL[room.state.shell]}
                     </figcaption>
                     {hasShelf && (

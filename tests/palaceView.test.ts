@@ -215,3 +215,15 @@ describe('buildPalace with kept progress', () => {
     expect(roomOf(view, 'coding').placed.map((p) => p.item)).toContain('coding_whiteboard')
   })
 })
+
+describe('rows for rooms that no longer exist', () => {
+  it('are ignored, not a crash', () => {
+    const view = palace({
+      chats: [{ id: 'old', roomId: 'gone' }],
+      messages: [{ chatId: 'old', role: 'user', createdAt: `${TODAY}T16:00:00.000Z` }],
+      goalCompletions: [{ projectId: 'p', roomId: 'gone', localDay: TODAY }]
+    })
+    expect(view.rooms.map((r) => r.id)).not.toContain('gone')
+    for (const room of view.rooms) expect(room.state.streak.current).toBe(0)
+  })
+})

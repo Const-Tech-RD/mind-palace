@@ -6,7 +6,8 @@ import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlit
  *
  * - Timestamps are UTC ISO-8601 strings (`2026-11-15T14:03:00.000Z`).
  * - `local_day` is a `YYYY-MM-DD` calendar day in the settings timezone.
- * - Rooms are not a table: `room_id` refers to an id in catalog/rooms/*.json.
+ * - `room_id` refers to the Mail room (catalog/rooms/mailroom.json) or a row of
+ *   `rooms`, the rooms the person materialised.
  * - Unlocks are derived by src/shared/engine; `room_progress` only keeps each
  *   room's high-water marks so an unlock is never lost when chats move.
  */
@@ -38,7 +39,11 @@ export const chats = sqliteTable(
      */
     suggestedProjectId: text('suggested_project_id'),
     /** Set when the user answered "Just a question": the chat is never offered again. */
-    projectDismissedAt: text('project_dismissed_at')
+    projectDismissedAt: text('project_dismissed_at'),
+    /** The area of life the chat is about, as a key (`3d_printing`); set once, then kept. */
+    area: text('area'),
+    /** The area as the model first named it ("3D printing"). */
+    areaName: text('area_name')
   },
   (t) => [index('chats_room_idx').on(t.roomId), index('chats_last_message_idx').on(t.lastMessageAt)]
 )
@@ -167,4 +172,30 @@ export const roomProgress = sqliteTable('room_progress', {
   bestStreak: integer('best_streak').notNull().default(0),
   goalCount: integer('goal_count').notNull().default(0),
   updatedAt: text('updated_at').notNull().default(utcNow)
+})
+
+/**
+ * The rooms the person materialised (the Mail room is the catalog's file).
+ * A room never changes cell once made; JSON columns hold its signature picks
+ * (`[{item, slots}]`, in order) and its classifier text.
+ */
+export const rooms = sqliteTable('rooms', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  area: text('area').notNull().unique(),
+  accent: integer('accent').notNull(),
+  cellX: integer('cell_x').notNull(),
+  cellY: integer('cell_y').notNull(),
+  signature: text('signature').notNull(),
+  classifier: text('classifier').notNull(),
+  createdAt: text('created_at').notNull().default(utcNow)
+})
+
+/** Areas the person dismissed as a room; counts are always derived from `chats`. */
+export const areaSuggestions = sqliteTable('area_suggestions', {
+  area: text('area').primaryKey(),
+  displayName: text('display_name').notNull(),
+  dismissedAt: text('dismissed_at').notNull(),
+  /** Chats in the area when it was dismissed; it comes back after 5 more. */
+  dismissedCount: integer('dismissed_count').notNull()
 })

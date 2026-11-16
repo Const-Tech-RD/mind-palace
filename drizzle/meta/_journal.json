@@ -43,6 +43,13 @@
       "when": 1794804324073,
       "tag": "0005_watery_pyro",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794804686700,
+      "tag": "0006_odd_reaper",
+      "breakpoints": true
     }
   ]
 }

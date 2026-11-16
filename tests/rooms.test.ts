@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadCatalog } from '../src/main/catalog/loader'
 import { computeRoomState } from '../src/shared/engine'
-import { accentToken, catalogWithRooms, ROOM_ACCENTS } from '../src/shared/rooms'
+import { accentToken, catalogWithRooms, ROOM_ACCENTS, roomDefFromRow, type RoomRow } from '../src/shared/rooms'
 import { CODING, MUSIC } from './fixtures/rooms'
 import { CATALOG_DIR, placed } from './helpers'
 
@@ -38,5 +38,53 @@ describe('room accents', () => {
   it('are tokens, one per palette index', () => {
     expect(ROOM_ACCENTS).toBe(8)
     expect(accentToken(3)).toBe('mp-room-accent-3')
+  })
+})
+
+describe('roomDefFromRow', () => {
+  const row: RoomRow = {
+    id: 'finance',
+    name: 'Finance',
+    area: 'finance',
+    accent: 3,
+    cellX: -1,
+    cellY: 0,
+    signature: [
+      { item: 'finance_ledger', slots: ['desk_center'] },
+      { item: 'finance_chart', slots: ['wall_right_b'] },
+      { item: 'finance_safe', slots: ['corner_right'] }
+    ],
+    classifier: { belongs: 'Money, budgets, taxes, loans.', not_here: 'Shopping lists.', examples: ['Plan my budget for December'] },
+    createdAt: '2026-11-16T12:00:00.000Z'
+  }
+
+  it('numbers the picks in order: the first is there from the start, the rest come with the streak', () => {
+    const def = roomDefFromRow(row)
+    expect(def.signature.map((s) => [s.n, s.unlock, s.item])).toEqual([
+      [1, 'start', 'finance_ledger'],
+      [2, 'streak', 'finance_chart'],
+      [3, 'streak', 'finance_safe']
+    ])
+    expect(def.signature[0]!.slots).toEqual(['desk_center'])
+  })
+
+  it('carries the cell, the area, the accent token and the classifier text', () => {
+    expect(roomDefFromRow(row)).toMatchObject({
+      id: 'finance',
+      name: 'Finance',
+      area: 'finance',
+      accent: 'mp-room-accent-3',
+      cell: [-1, 0],
+      belongs: 'Money, budgets, taxes, loans.',
+      not_here: 'Shopping lists.',
+      examples: ['Plan my budget for December'],
+      assets: {}
+    })
+  })
+
+  it('accepts a room with no signature items (base furniture only)', () => {
+    const def = roomDefFromRow({ ...row, signature: [] })
+    const state = computeRoomState('finance', [], catalogWithRooms(base, [def]), '2026-12-01')
+    expect(placed(state)).toEqual(['base_crate@seat', 'base_desk@desk'])
   })
 })

@@ -61,6 +61,8 @@
   --mp-room-accent-6: #f87171;
   --mp-room-accent-7: #c4b5fd;
   --mp-room-mailroom: #a9adc6;
+  /* Chats not sorted into a room yet. */
+  --mp-room-unsorted: #6b6f8a;
 }
 
 html,

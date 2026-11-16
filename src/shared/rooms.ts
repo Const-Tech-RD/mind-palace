@@ -33,3 +33,51 @@ export function catalogWithRooms(base: Catalog, rooms: readonly RoomDef[]): Cata
   }
   return { ...base, rooms: all }
 }
+
+/** One signature pick as stored: the item and its slot(s); its position gives its number. */
+export interface StoredSignatureStep {
+  item: string
+  slots: string[]
+}
+
+/** The text the classifier reads to file chats into the room. */
+export interface RoomClassifierText {
+  belongs: string
+  not_here: string
+  examples: string[]
+}
+
+/** A `rooms` row, with its JSON columns parsed. */
+export interface RoomRow {
+  id: string
+  name: string
+  area: string
+  /** Palette index; see `accentToken`. */
+  accent: number
+  cellX: number
+  cellY: number
+  signature: StoredSignatureStep[]
+  classifier: RoomClassifierText
+  createdAt: string
+}
+
+/** A stored room as the engine sees it: pick 1 is there from the start, picks 2-5 come with the streak ladder. */
+export function roomDefFromRow(row: RoomRow): RoomDef {
+  return {
+    id: row.id,
+    name: row.name,
+    area: row.area,
+    accent: accentToken(row.accent),
+    cell: [row.cellX, row.cellY],
+    belongs: row.classifier.belongs,
+    not_here: row.classifier.not_here,
+    examples: row.classifier.examples,
+    signature: row.signature.map((step, i) => ({
+      n: i + 1,
+      unlock: i === 0 ? ('start' as const) : ('streak' as const),
+      item: step.item,
+      slots: [...step.slots]
+    })),
+    assets: {}
+  }
+}

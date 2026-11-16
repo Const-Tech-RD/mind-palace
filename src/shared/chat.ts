@@ -169,7 +169,7 @@ export function groupChatsByRoom(
   const groups: ChatGroup[] = []
   const unsorted = byGroup.get(UNSORTED_GROUP)
   if (unsorted) {
-    groups.push({ id: UNSORTED_GROUP, name: 'Unsorted', accent: '#6b6f8a', chats: unsorted.sort(newestFirst) })
+    groups.push({ id: UNSORTED_GROUP, name: 'Unsorted', accent: 'mp-room-unsorted', chats: unsorted.sort(newestFirst) })
   }
   for (const room of rooms) {
     const list = byGroup.get(room.id)

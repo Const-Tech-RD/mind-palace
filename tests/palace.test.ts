@@ -318,7 +318,7 @@ function classifierHarness(answers: Array<Partial<RawClassification> | { fail: s
   let clock = new Date('2026-11-15T12:00:00.000Z')
   const classifier = createClassifier({
     repo: palace.repo,
-    rooms,
+    rooms: () => rooms,
     fallbackRoomId,
     messagesOf: (chatId) => transcripts.get(chatId) ?? [],
     askModel: async (prompt): Promise<JsonAnswer> => {
@@ -464,7 +464,7 @@ describe('project service', () => {
     let clock = new Date('2026-11-15T16:00:00.000Z')
     const service = createProjectService({
       repo: palace.repo,
-      roomIds,
+      roomIds: () => roomIds,
       timeZone: () => timeZone,
       onChanged: (chatId) => changed.push(chatId),
       now: () => clock

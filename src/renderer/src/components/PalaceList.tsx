@@ -1,4 +1,5 @@
 import { decayText, trackProgress, type PalaceRoom } from '@shared/palace'
+import { accentCss } from '../theme'
 
 /**
  * The palace as a plain list: the same rooms, progress and decay as the
@@ -42,7 +43,7 @@ export function RoomSummary({ room, decay, roomIds }: { room: PalaceRoom; decay:
   return (
     <div className="flex flex-col gap-1 text-xs">
       <p className="flex items-center gap-1.5 text-sm font-semibold">
-        <span className="inline-block size-2 rounded-full" style={{ backgroundColor: `var(--mp-room-${room.id}, ${room.accent})` }} aria-hidden="true" />
+        <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(room.accent) }} aria-hidden="true" />
         {room.name}
       </p>
       <p className="text-muted">

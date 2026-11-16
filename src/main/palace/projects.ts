@@ -4,7 +4,8 @@ import type { PalaceRepo } from './repo'
 
 export interface ProjectServiceDeps {
   repo: PalaceRepo
-  roomIds: readonly string[]
+  /** The rooms that exist now; rooms are made while the app runs. */
+  roomIds: () => readonly string[]
   /** IANA timezone used for the one-completion-per-day rule. */
   timeZone: () => string
   onChanged: (chatId: string) => void
@@ -101,7 +102,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
 
     /** "Move to room": the user's choice, which the classifier never overrides. */
     moveChat(chatId: string, roomId: string): void {
-      if (!deps.roomIds.includes(roomId)) throw new Error(`There is no room "${roomId}".`)
+      if (!deps.roomIds().includes(roomId)) throw new Error(`There is no room "${roomId}".`)
       if (!repo.chat(chatId)) throw new Error('That chat no longer exists.')
       deps.beforeMove?.()
       repo.setRoom(chatId, roomId, 'user')

@@ -14,6 +14,9 @@ import { createProjectService } from './palace/projects'
 import { createPalaceRepo } from './palace/repo'
 import { createPalaceView } from './palace/view'
 import { createProgressKeeper } from './palace/progress'
+import { createRoomsRepo } from './palace/roomsRepo'
+import { catalogWithRooms, roomDefFromRow } from '@shared/rooms'
+import type { Catalog } from '@shared/catalog'
 import { openStore, type Store } from './db/client'
 import { handle } from './ipc'
 import { applyStartAtLogin, getStartAtLogin } from './loginItem'
@@ -75,11 +78,27 @@ function start(): void {
   }
   applyStartAtLogin(db)
 
+  const fileCatalog = catalog
+  const roomsRepo = createRoomsRepo(db.db)
+  /** The catalog with the rooms the person made; read fresh, since rooms are made while the app runs. */
+  const currentCatalog = (): Catalog =>
+    catalogWithRooms(
+      fileCatalog,
+      roomsRepo.rows().flatMap((row) => {
+        try {
+          return [roomDefFromRow(row)]
+        } catch (error) {
+          console.warn(`[mind-palace] room "${row.id}" is left out: ${error instanceof Error ? error.message : String(error)}`)
+          return []
+        }
+      })
+    )
+
   const status = (): AppStatus => ({
     version: app.getVersion(),
     databasePath: db.path,
     tables: db.tables(),
-    rooms: Object.values(catalog.rooms).map(({ id, name, accent }) => ({ id, name, accent })),
+    rooms: Object.values(currentCatalog().rooms).map(({ id, name, accent }) => ({ id, name, accent })),
     catalogWarnings: catalog.warnings.map(formatIssue),
     startAtLogin: getStartAtLogin(db)
   })
@@ -98,7 +117,7 @@ function start(): void {
   if (stamped > 0) console.log(`[mind-palace] stored the local day on ${stamped} older messages`)
   const palaceRepo = createPalaceRepo(db.db)
   // Earned stays earned: store each room's marks before anything can move a chat.
-  const keeper = createProgressKeeper({ store: db, catalog: () => catalog, timeZone })
+  const keeper = createProgressKeeper({ store: db, catalog: currentCatalog, timeZone })
   keeper.record()
   const onChanged = (chatId: string): void => emit({ type: 'updated', chatId })
 
@@ -117,7 +136,7 @@ function start(): void {
   let reminders: ReminderService | null = null
   const projects = createProjectService({
     repo: palaceRepo,
-    roomIds: Object.keys(catalog.rooms),
+    roomIds: () => Object.keys(currentCatalog().rooms),
     timeZone,
     onChanged,
     afterAction: (projectId, action) => reminders?.afterProjectAction(projectId, action),
@@ -151,13 +170,14 @@ function start(): void {
   reminders = reminderService
   const classifier = createClassifier({
     repo: palaceRepo,
-    rooms: Object.values(catalog.rooms).map(({ id, name, belongs, not_here, examples }) => ({
-      id,
-      name,
-      belongs,
-      not_here,
-      examples
-    })),
+    rooms: () =>
+      Object.values(currentCatalog().rooms).map(({ id, name, belongs, not_here, examples }) => ({
+        id,
+        name,
+        belongs,
+        not_here,
+        examples
+      })),
     fallbackRoomId: catalog.rules.classification.fallback_room,
     messagesOf: (chatId) => chatRepo.messages(chatId),
     askModel: askSmallModel,
@@ -210,7 +230,7 @@ function start(): void {
     return { dismissed: true }
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
-  const palace = createPalaceView({ store: db, catalog, keeper, timeZone })
+  const palace = createPalaceView({ store: db, catalog: currentCatalog, keeper, timeZone })
   handle('palace:view', (request) => palace.view(request?.focus ?? null))
   handle('palace:place', (change) => palace.place(change))
   handle('palace:reset', ({ roomId, instance }) => palace.reset(roomId, instance))
