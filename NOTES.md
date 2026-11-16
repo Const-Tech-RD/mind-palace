@@ -442,3 +442,13 @@ PR #2 (Claudio's review fixes) went into main first; this branch was then merged
 - `src/main/chat/claude.ts`: his `./env` allow-list is used; this branch's `src/shared/sdkEnv.ts` and its test were removed.
 - `tests/e2e/run.mjs`: the palace session's seed still wrote `goal_completions.counted`, which migration 0002 drops, so S5 aborted on his branch (he could not run S5 on Windows). The column is no longer written.
 - Before the merged code ran on the owner's real database, it was copied to `mind-palace.sqlite.bak-before-pr2-20261116` beside it.
+
+## Stage 3: a clickable world (2026-11-16)
+
+- **Things in a room** (`roomHotspots.ts`): each painted room has four to six things that can be clicked, shown as small dots that name themselves on hover. Their positions were read off the cut-outs by eye. In every room: one starts a chat filed there, one lists projects in progress (with Done), one lists finished projects (with Reopen), one lists the room's chats. The Mail room adds the pigeonholes (chats with no room, with "Keep here"), the bell (reminders) and the door (back to the palace).
+- **Cards** (`RoomPanel.tsx`): a parchment card pinned by the thing clicked. Esc closes the card first, the room second.
+- **Reminders on the spot**: the reminders button on the map and the Mail room's bell open a card where each reminder can be answered (Open, Done, Snooze, Pause, Drop) without leaving the palace. The button pulses gold while any are waiting. This replaces the plan's idea of a character walking up to Nato.
+- **Drag to file**: a chat dragged from the list onto a room on the floor, or onto a room's tab, is moved there as a move made by the person.
+- `PalaceCanvas` now reports its camera (`onCamera`), and the view pins labels, dots and cards over the floor itself.
+
+Verified: typecheck, unit tests, E2E S5 9/9 with new cases V8 (click the jacket, Esc, click the desk) and V9 (reminders card on the map; drag a chat onto a room's tab). Not verified: dropping a chat on a room on the canvas itself (the test drops on the tab); the reminders card with real reminders in it. The full E2E run afterwards passed 38 of 38 with L3 skipped. The dots were looked at in all four rooms and sit on their things.

@@ -3,7 +3,10 @@ import { AGENT_LABEL, roomAgents, type RoomAgent } from '@shared/agents'
 import { activeToday, currentRoomOf, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
 import { useStore } from '../store'
 import { ActivityStrip } from './ActivityStrip'
-import { PalaceCanvas, type CanvasLabel } from './PalaceCanvas'
+import { iso, PAINTED_WALL } from '@shared/floor'
+import { CHAT_DRAG_TYPE, PalaceCanvas, type CanvasCamera } from './PalaceCanvas'
+import { HOTSPOT_ACTION, ROOM_HOTSPOTS, type Hotspot } from './roomHotspots'
+import { RoomPanel } from './RoomPanel'
 import { ROOM_IMAGE } from './roomArt'
 
 const MAX_TROPHIES = 5
@@ -155,8 +158,12 @@ export function PalaceView() {
   const selectChat = useStore((s) => s.selectChat)
   const startChatIn = useStore((s) => s.startChatIn)
   const showProjects = useStore((s) => s.showProjects)
-  const showReminders = useStore((s) => s.showReminders)
-  const [labels, setLabels] = useState<CanvasLabel[]>([])
+  const moveChat = useStore((s) => s.moveChat)
+  const [camera, setCamera] = useState<CanvasCamera | null>(null)
+  /** The thing that was clicked and whose card is open; `roomId` null is the palace-wide reminders card. */
+  const [panel, setPanel] = useState<{ roomId: string | null; hotspot: Hotspot } | null>(null)
+  const closePanel = useCallback(() => setPanel(null), [])
+  const dropChat = useCallback((toRoom: string, chatId: string) => void moveChat(chatId, toRoom), [moveChat])
 
   const room = palace?.rooms.find((r) => r.id === roomId) ?? null
   const roomIds = useMemo(() => palace?.rooms.map((r) => r.id) ?? [], [palace])
@@ -168,6 +175,32 @@ export function PalaceView() {
   const natoRoomName = palace?.rooms.find((r) => r.id === natoRoom)?.name
   const activeProjects = projects.filter((p) => p.state === 'active').length
   const pick = useCallback((id: string) => void showPalace(id), [showPalace])
+
+  // A card belongs to the view it was opened in.
+  useEffect(() => setPanel(null), [roomId])
+
+  /** Where a point of the floor (logical pixels) is on the stage right now. */
+  const onStage = (x: number, y: number): { left: number; top: number } =>
+    camera ? { left: x * camera.scale + camera.x, top: y * camera.scale + camera.y } : { left: -9999, top: -9999 }
+  const labels = (palace?.floor.rooms ?? []).map((r) => {
+    const at = iso(r.origin[0], r.origin[1], PAINTED_WALL - 0.6)
+    const spot = onStage(at.x, at.y)
+    return { id: r.id, left: spot.left, top: Math.max(34, spot.top) }
+  })
+  const floorRoom = palace?.floor.rooms.find((r) => r.id === room?.id)
+  const hotspots = room && floorRoom
+    ? (ROOM_HOTSPOTS[room.id] ?? []).map((hotspot) => {
+        const origin = iso(floorRoom.origin[0], floorRoom.origin[1])
+        return { hotspot, ...onStage(origin.x + hotspot.at[0], origin.y + hotspot.at[1]) }
+      })
+    : []
+  const openHotspot = (hotspot: Hotspot): void => {
+    if (!room) return
+    if (hotspot.kind === 'chat') startChatIn(room.id)
+    else if (hotspot.kind === 'exit') void showPalace(null)
+    else setPanel(panel?.hotspot.id === hotspot.id ? null : { roomId: room.id, hotspot })
+  }
+  const REMINDERS_CARD: Hotspot = { id: 'palace-reminders', kind: 'reminders', thing: 'The whole palace', at: [0, 0] }
 
   // Looking at a room is what makes its news old. The highlight stays on screen
   // until the palace is next refreshed.
@@ -219,6 +252,16 @@ export function PalaceView() {
                 key={r.id}
                 type="button"
                 onClick={() => void showPalace(r.id)}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes(CHAT_DRAG_TYPE)) e.preventDefault()
+                }}
+                onDrop={(e) => {
+                  const chatId = e.dataTransfer.getData(CHAT_DRAG_TYPE)
+                  if (chatId) {
+                    e.preventDefault()
+                    dropChat(r.id, chatId)
+                  }
+                }}
                 aria-current={active ? 'page' : undefined}
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
                   active ? 'bg-raised text-paper' : 'text-paper/70 hover:bg-paper/5'
@@ -254,7 +297,7 @@ export function PalaceView() {
                 data-testid="palace-stage"
                 data-room={room?.id ?? ''}
               >
-                <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick} onLabels={setLabels} />
+                <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick} onCamera={setCamera} onDropChat={dropChat} />
 
                 {/* Room names float over the floor; they are also the keyboard way into a room. */}
                 {!room &&
@@ -307,8 +350,11 @@ export function PalaceView() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void showReminders()}
-                      className="rounded-full border border-brass/50 bg-walnut/85 px-3 py-1.5 text-xs text-paper shadow backdrop-blur hover:bg-raised"
+                      onClick={() => setPanel(panel?.hotspot.id === REMINDERS_CARD.id ? null : { roomId: null, hotspot: REMINDERS_CARD })}
+                      aria-expanded={panel?.hotspot.id === REMINDERS_CARD.id}
+                      className={`rounded-full border px-3 py-1.5 text-xs shadow backdrop-blur ${
+                        reminders > 0 ? 'reminder-waiting border-gold bg-walnut/85 text-gold hover:bg-raised' : 'border-brass/50 bg-walnut/85 text-paper hover:bg-raised'
+                      }`}
                     >
                       {reminders} reminder{reminders === 1 ? '' : 's'}
                     </button>
@@ -375,6 +421,46 @@ export function PalaceView() {
                     )}
                   </>
                 )}
+                {/* The things in the room that can be clicked. */}
+                {room &&
+                  hotspots.map(({ hotspot, left, top }) => {
+                    const open = panel?.hotspot.id === hotspot.id
+                    const waiting = hotspot.kind === 'reminders' && reminders > 0
+                    return (
+                      <button
+                        key={hotspot.id}
+                        type="button"
+                        onClick={() => openHotspot(hotspot)}
+                        aria-label={`${hotspot.thing}: ${HOTSPOT_ACTION[hotspot.kind]}`}
+                        aria-expanded={hotspot.kind === 'chat' || hotspot.kind === 'exit' ? undefined : open}
+                        data-hotspot={hotspot.kind}
+                        className={`hotspot group absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center ${open ? 'open' : ''} ${waiting ? 'waiting' : ''}`}
+                        style={{ left, top }}
+                      >
+                        <span className="hotspot-dot block size-4 rounded-full border-2 border-paper shadow" style={{ backgroundColor: waiting ? '#e8b84a' : room.accent }} />
+                        <span className="hotspot-tip pointer-events-none absolute top-1/2 left-full ml-1.5 -translate-y-1/2 rounded-full border border-brass/60 bg-walnut/95 px-2 py-0.5 text-[11px] whitespace-nowrap text-paper shadow">
+                          {HOTSPOT_ACTION[hotspot.kind]}
+                          {hotspot.kind === 'reminders' && reminders > 0 ? ` · ${reminders}` : ''}
+                        </span>
+                      </button>
+                    )
+                  })}
+
+                {panel &&
+                  (() => {
+                    const pinned = panel.roomId === null ? { left: 12, top: 52 } : (hotspots.find((h) => h.hotspot.id === panel.hotspot.id) ?? { left: 12, top: 52 })
+                    return (
+                      <RoomPanel
+                        kind={panel.hotspot.kind as 'projects' | 'finished' | 'chats' | 'unsorted' | 'reminders'}
+                        roomId={panel.roomId}
+                        thing={panel.hotspot.thing}
+                        left={Math.max(12, pinned.left - 20)}
+                        top={Math.max(12, pinned.top + 14)}
+                        onClose={closePanel}
+                      />
+                    )
+                  })()}
+
                 <span className="sr-only" role="img" aria-label={natoRoomName ? `Nato, in the ${natoRoomName}` : 'Nato, in the lobby'} />
               </figure>
 
@@ -403,7 +489,7 @@ export function PalaceView() {
                   {activeRooms.length === 0
                     ? 'No room has a chat yet today.'
                     : `Today you chatted in the ${activeRooms.map((r) => r.name).join(' and the ')}.`}{' '}
-                  Click a room to go in. Scroll to zoom, drag to move.
+                  Click a room to go in. Drag a chat from the list onto a room to file it there.
                 </p>
               )}
             </div>

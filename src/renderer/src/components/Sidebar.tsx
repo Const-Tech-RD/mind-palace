@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { groupChatsByRoom } from '@shared/chat'
 import { useStore } from '../store'
+import { CHAT_DRAG_TYPE } from './PalaceCanvas'
 
 const icon = (path: ReactNode) => (
   <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -145,6 +146,13 @@ export function Sidebar() {
                       <button
                         type="button"
                         onClick={() => void selectChat(chat.id)}
+                        draggable
+                        onDragStart={(e) => {
+                          // Dropped on a room in the palace, the chat is filed there.
+                          e.dataTransfer.setData(CHAT_DRAG_TYPE, chat.id)
+                          e.dataTransfer.setData('text/plain', chat.title || 'New chat')
+                          e.dataTransfer.effectAllowed = 'move'
+                        }}
                         aria-current={active ? 'true' : undefined}
                         className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-8 pl-2 text-left text-sm ${
                           active ? 'bg-paper/10 text-paper' : 'text-paper/80 hover:bg-paper/5'
