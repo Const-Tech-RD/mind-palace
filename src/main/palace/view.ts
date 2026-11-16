@@ -2,7 +2,7 @@ import { localDayOf, type HistoryRows } from '@shared/engine'
 import type { Catalog } from '@shared/catalog'
 import { buildPalace, seenKeys, type PalaceView } from '@shared/palace'
 import type { Store } from '../db/client'
-import { chats, goalCompletions, messages } from '../db/schema'
+import { chats, goalCompletions, messages, projects } from '../db/schema'
 
 const seenSetting = (roomId: string): string => `palace.seen.${roomId}`
 
@@ -18,7 +18,7 @@ function readSeen(store: Store, roomId: string): string[] | null {
 }
 
 /** The rows the engine needs, straight from the database. Unlocks are never stored. */
-function historyRows(store: Store): HistoryRows {
+function historyRows(store: Store, timeZone: string): HistoryRows {
   return {
     chats: store.db.select({ id: chats.id, roomId: chats.roomId }).from(chats).all(),
     messages: store.db
@@ -28,7 +28,12 @@ function historyRows(store: Store): HistoryRows {
     goalCompletions: store.db
       .select({ projectId: goalCompletions.projectId, roomId: goalCompletions.roomId, localDay: goalCompletions.localDay })
       .from(goalCompletions)
+      .all(),
+    projects: store.db
+      .select({ id: projects.id, roomId: projects.roomId, state: projects.state, lastActivityAt: projects.lastActivityAt })
+      .from(projects)
       .all()
+      .map(({ lastActivityAt, ...p }) => ({ ...p, lastActivityDay: lastActivityAt ? localDayOf(lastActivityAt, timeZone) : null }))
   }
 }
 
@@ -40,7 +45,7 @@ export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZon
     const timeZone = deps.timeZone()
     return buildPalace({
       catalog,
-      rows: historyRows(store),
+      rows: historyRows(store, timeZone),
       timeZone,
       today: localDayOf(now(), timeZone),
       seen: Object.fromEntries(Object.keys(catalog.rooms).map((roomId) => [roomId, readSeen(store, roomId)]))

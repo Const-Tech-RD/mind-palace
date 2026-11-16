@@ -22,6 +22,15 @@ export type RoomEvent =
       localDay: LocalDay
       projectId: string
     }
+  | {
+      /** A project as it stands now; drives the room's decay. */
+      kind: 'project'
+      roomId: string
+      projectId: string
+      state: string
+      /** Local day of the project's last activity, or null if there was none yet. */
+      lastActivityDay: LocalDay | null
+    }
 
 export type Track = 'streak' | 'goals'
 
@@ -57,6 +66,8 @@ export interface NextUnlock {
   rewards: Reward[]
 }
 
+export type DecayLevel = 0 | 1 | 2 | 3 | 4
+
 export interface RoomState {
   roomId: string
   today: LocalDay
@@ -81,6 +92,8 @@ export interface RoomState {
   items: PlacedItem[]
   /** Earned but not shown, because a later item took their slot (the crate once the chair is there). */
   replaced: PlacedItem[]
+  /** From the quietest active project's weekdays without activity (plan v2, Decay). */
+  decay: { level: DecayLevel; weekdaysQuiet: number; projectId: string | null }
   nextUnlock: {
     streak: NextUnlock | null
     goals: NextUnlock | null

@@ -39,6 +39,16 @@ export function weekdayIndex(dayNum: number): number {
   return (((dayNum + 4) % 7) + 7) % 7
 }
 
+/** Monday-to-Friday days after `from`, up to and including `to` (0 when `to` is not later). */
+export function weekdaysBetween(from: LocalDay, to: LocalDay): number {
+  let count = 0
+  for (let n = dayNumber(from) + 1; n <= dayNumber(to); n++) {
+    const weekday = weekdayIndex(n)
+    if (weekday >= 1 && weekday <= 5) count += 1
+  }
+  return count
+}
+
 export function weekdayOf(day: LocalDay): Weekday {
   return WEEKDAYS[weekdayIndex(dayNumber(day))]!
 }

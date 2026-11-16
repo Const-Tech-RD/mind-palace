@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { catalog, chatsOn, goalOn, placed, run } from './helpers'
 import {
+  addDays,
   buildRoomEvents,
   computeRoomState,
   diffRoomStates,
   localDayOf,
   reopenGoal,
   weekdayOf,
+  weekdaysBetween,
   type Catalog,
   type HistoryRows,
   type RoomEvent
@@ -552,5 +554,77 @@ describe('purity', () => {
     const second = computeRoomState('coding', events, catalog, WED2)
     expect(second).toEqual(first)
     expect(JSON.stringify(catalog)).toBe(snapshot)
+  })
+})
+
+describe('decay', () => {
+  /** The day `n` weekdays after `from`. */
+  const afterWeekdays = (from: string, n: number): string => {
+    let day = from
+    for (let left = n; left > 0; ) {
+      day = addDays(day, 1)
+      if (!['saturday', 'sunday'].includes(weekdayOf(day))) left -= 1
+    }
+    return day
+  }
+  const project = (projectId: string, state: string, lastActivityDay: string | null, roomId = 'coding'): RoomEvent => ({
+    kind: 'project',
+    roomId,
+    projectId,
+    state,
+    lastActivityDay
+  })
+
+  it('counts weekdays only: Friday to the next Friday is 5', () => {
+    expect(weekdaysBetween('2026-11-06', '2026-11-13')).toBe(5)
+    expect(weekdaysBetween(MON, MON)).toBe(0)
+    expect(weekdaysBetween('2026-11-06', '2026-11-08')).toBe(0) // Friday to Sunday
+  })
+
+  it('never decays a room with no active project, however long ago', () => {
+    const state = computeRoomState('coding', [project('p', 'paused', '2025-01-01')], catalog, MON)
+    expect(state.decay).toEqual({ level: 0, weekdaysQuiet: 0, projectId: null })
+  })
+
+  it.each([
+    [6, 0],
+    [7, 1],
+    [13, 1],
+    [14, 2],
+    [21, 3],
+    [29, 3],
+    [30, 4],
+    [60, 4]
+  ])('%i quiet weekdays on the quietest active project is level %i', (quiet, level) => {
+    const today = afterWeekdays(MON, quiet)
+    const state = computeRoomState('coding', [project('p', 'active', MON)], catalog, today)
+    expect(state.decay).toEqual({ level, weekdaysQuiet: quiet, projectId: 'p' })
+  })
+
+  it('takes the quietest of several active projects and ignores closed ones and other rooms', () => {
+    const today = afterWeekdays(MON, 20)
+    const events = [
+      project('busy', 'active', afterWeekdays(MON, 18)),
+      project('quiet', 'active', afterWeekdays(MON, 5)),
+      project('done', 'done', '2025-01-01'),
+      project('dropped', 'dropped', '2025-01-01'),
+      project('elsewhere', 'active', '2025-01-01', 'music')
+    ]
+    expect(computeRoomState('coding', events, catalog, today).decay).toEqual({ level: 2, weekdaysQuiet: 15, projectId: 'quiet' })
+  })
+
+  it('treats an active project with no activity yet as fresh', () => {
+    expect(computeRoomState('coding', [project('p', 'active', null)], catalog, MON).decay.level).toBe(0)
+  })
+
+  it('comes from project rows through buildRoomEvents', () => {
+    const rows: HistoryRows = {
+      chats: [],
+      messages: [],
+      goalCompletions: [],
+      projects: [{ id: 'p', roomId: 'art', state: 'active', lastActivityDay: MON }]
+    }
+    const state = computeRoomState('art', buildRoomEvents(rows, 'UTC'), catalog, afterWeekdays(MON, 7))
+    expect(state.decay).toEqual({ level: 1, weekdaysQuiet: 7, projectId: 'p' })
   })
 })
