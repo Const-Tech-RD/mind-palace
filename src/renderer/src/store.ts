@@ -3,7 +3,7 @@ import { addActivity, chatChanges, SORTING_ROOM, type ActivityItem, type Activit
 import { titleFromMessage, type AuthState, type ChatEvent, type ChatMessage, type ChatSummary } from '@shared/chat'
 import type { AppEvent, AppStatus } from '@shared/ipc'
 import type { PalaceView } from '@shared/palace'
-import type { MilestoneEdit, ProjectProgress, SweepCandidate } from '@shared/milestones'
+import type { GitInfo, MilestoneEdit, ProjectProgress, SweepCandidate } from '@shared/milestones'
 import type { PlacementChange } from '@shared/placements'
 import type { ProjectAction, ProjectSummary } from '@shared/projects'
 import type { ReminderItem, ReminderResponse } from '@shared/reminders'
@@ -27,6 +27,8 @@ interface State {
   /** A sweep or link running, by project id (the build itself shows as `running`). */
   progressBusy: Record<string, boolean>
   progressErrors: Record<string, string>
+  /** Each project folder's git info, by project id (null: no repo). */
+  gitInfo: Record<string, GitInfo | null>
   /** Reminders waiting for a reaction. */
   reminders: ReminderItem[]
   /** Whether system notifications are shown for reminders. */
@@ -43,7 +45,11 @@ interface State {
    * Which main view is showing. The palace is home; `chat` is the palace with
    * the chat panel open beside it.
    */
-  view: 'chat' | 'projects' | 'reminders' | 'palace'
+  view: 'chat' | 'projects' | 'project' | 'reminders' | 'palace'
+  /** The project the project page shows. */
+  projectPageId: string | null
+  /** Text a new chat's message box starts with (taken once by the chat view). */
+  composerDraft: string | null
   /** The chat panel takes the whole width, hiding the palace. */
   chatWide: boolean
   /** The side rail is expanded to show the list of chats. */
@@ -80,12 +86,17 @@ interface State {
   stop(): Promise<void>
   deleteChat(chatId: string): Promise<void>
   showProjects(): Promise<void>
+  /** Opens one project's page. */
+  showProject(projectId: string): Promise<void>
+  /** Hands the composer's starting text to the chat view, once. */
+  takeComposerDraft(): string | null
   refreshProjects(): Promise<void>
   moveChat(chatId: string, roomId: string): Promise<void>
   /** Answers the "Track it?" card. */
   answerSuggestion(chatId: string, track: boolean): Promise<void>
   projectAction(projectId: string, action: ProjectAction): Promise<void>
   loadProgress(projectId: string): Promise<void>
+  loadGitInfo(projectId: string): Promise<void>
   /** First run and "Find more chats": the sweep, then "Link these" (or straight to building when it finds none). */
   sweepProject(projectId: string): Promise<void>
   linkChats(projectId: string, accept: string[], dismiss: string[]): Promise<void>
@@ -98,7 +109,8 @@ interface State {
   /** Opens the palace: on a room when given one, otherwise on the whole palace. */
   showPalace(roomId?: string | null): Promise<void>
   /** Starts a new chat that will be filed in this room. */
-  startChatIn(roomId: string): void
+  /** Starts a new chat filed in this room, optionally with text waiting in the message box. */
+  startChatIn(roomId: string, draft?: string): void
   refreshPalace(): Promise<void>
   /** Moves, re-skins or hides an item in a room (the room editor). */
   place(change: PlacementChange): Promise<void>
@@ -168,6 +180,7 @@ export const useStore = create<State>((set, get) => ({
   sweeps: {},
   progressBusy: {},
   progressErrors: {},
+  gitInfo: {},
   reminders: [],
   notificationsOn: true,
   palace: null,
@@ -175,6 +188,8 @@ export const useStore = create<State>((set, get) => ({
   newChatRoomId: null,
   seenRooms: [],
   view: 'palace',
+  projectPageId: null,
+  composerDraft: null,
   chatWide: remembered(WIDE_KEY),
   railOpen: remembered(RAIL_KEY),
   commandOpen: false,
@@ -318,6 +333,17 @@ export const useStore = create<State>((set, get) => ({
     await get().refreshProjects()
   },
 
+  async showProject(projectId) {
+    set({ view: 'project', projectPageId: projectId, appError: null, commandOpen: false })
+    await Promise.all([get().refreshProjects(), get().refreshChats(), get().refreshPalace(), get().loadProgress(projectId)])
+  },
+
+  takeComposerDraft() {
+    const draft = get().composerDraft
+    if (draft !== null) set({ composerDraft: null })
+    return draft
+  },
+
   async refreshProjects() {
     try {
       set({ projects: await window.mindPalace.invoke('project:list') })
@@ -357,6 +383,15 @@ export const useStore = create<State>((set, get) => ({
 
   async loadProgress(projectId) {
     await progressCall(projectId, () => window.mindPalace.invoke('progress:get', { projectId }))
+  },
+
+  async loadGitInfo(projectId) {
+    try {
+      const info = await window.mindPalace.invoke('progress:git', { projectId })
+      set((s) => ({ gitInfo: { ...s.gitInfo, [projectId]: info } }))
+    } catch {
+      // Git info is a nicety; the page works without it.
+    }
   },
 
   async sweepProject(projectId) {
@@ -407,13 +442,14 @@ export const useStore = create<State>((set, get) => ({
     await Promise.all([get().refreshPalace(), get().refreshProjects(), get().refreshReminders(), get().refreshChats()])
   },
 
-  startChatIn(roomId) {
+  startChatIn(roomId, draft) {
     const known = get().palace?.rooms.some((r) => r.id === roomId) ?? false
     set((s) => ({
       view: 'chat',
       activeChatId: null,
       appError: null,
       newChatRoomId: roomId,
+      composerDraft: draft ?? null,
       commandOpen: false,
       palaceRoomId: known ? roomId : s.palaceRoomId
     }))

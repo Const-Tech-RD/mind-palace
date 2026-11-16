@@ -344,6 +344,7 @@ function memoryPalace() {
         snoozedUntil: null,
         createdAt: input.at,
         closedAt: null,
+        remindersSent: 0,
         chatIds: [],
         originChatId: input.originChatId
       })
@@ -494,7 +495,7 @@ describe('classifier', () => {
     const h = classifierHarness([{ room_id: 'coding', is_project: true, project_title: 'Pantry', existing_project_id: 'p-open' }])
     h.projects.set('p-open', {
       id: 'p-open', title: 'Pantry app', roomId: 'coding', state: 'active', nextStep: null, lastActivityAt: null,
-      snoozedUntil: null, createdAt: '2026-11-01T00:00:00.000Z', closedAt: null, chatIds: ['other'], originChatId: 'other'
+      snoozedUntil: null, createdAt: '2026-11-01T00:00:00.000Z', closedAt: null, remindersSent: 0, chatIds: ['other'], originChatId: 'other'
     })
     h.chat('c1')
     await h.classifier.classify('c1')
@@ -512,7 +513,7 @@ describe('classifier', () => {
     h.chat('tracked')
     h.projects.set('p1', {
       id: 'p1', title: 'Existing', roomId: 'coding', state: 'active', nextStep: null, lastActivityAt: null,
-      snoozedUntil: null, createdAt: '2026-11-01T00:00:00.000Z', closedAt: null, chatIds: ['tracked'], originChatId: 'tracked'
+      snoozedUntil: null, createdAt: '2026-11-01T00:00:00.000Z', closedAt: null, remindersSent: 0, chatIds: ['tracked'], originChatId: 'tracked'
     })
     await h.classifier.classify('dismissed')
     await h.classifier.classify('tracked')

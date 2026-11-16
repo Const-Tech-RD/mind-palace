@@ -94,10 +94,12 @@ export function ChatView() {
     bottom.current?.scrollIntoView({ block: 'end' })
   }, [messages.length, streaming?.text, streaming?.searching])
 
+  const takeComposerDraft = useStore((s) => s.takeComposerDraft)
   useEffect(() => {
-    setDraft('')
+    // A new chat may start with text waiting (e.g. "Start a session on this" from a project page).
+    setDraft(activeChatId === null ? (takeComposerDraft() ?? '') : '')
     input.current?.focus()
-  }, [activeChatId])
+  }, [activeChatId, takeComposerDraft])
 
   const submit = (event?: FormEvent): void => {
     event?.preventDefault()
