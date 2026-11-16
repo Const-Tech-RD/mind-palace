@@ -5,7 +5,8 @@ import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } 
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
 import { iso, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
-import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
+import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, ITEM_SPRITES, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
+import { spritePlacement, type SpriteEntry } from '@shared/sprites'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
 import { slotAt } from '@shared/editMode'
@@ -86,7 +87,17 @@ function blockColour(block: FloorBlock, accent: number): number {
   return block.item.startsWith('base_') || block.item === 'trophy_shelf' ? P.wood : mix(P.wood, accent, 0.55)
 }
 
-function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean): Container {
+/** A loaded furniture sprite: its manifest entry and texture. */
+type ItemArt = { entry: SpriteEntry; texture: Texture }
+type Slots = FloorView['slots']
+
+/** The wall an item hangs on, or stands on a shelf on, from its slot; null for the floor and the desk. */
+function wallOf(slots: Slots, slotId: string): 'left' | 'right' | null {
+  const slot = slots[slotId]
+  return slot?.wall ?? (slot?.host ? (slots[slot.host]?.wall ?? null) : null)
+}
+
+function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean, art: ReadonlyMap<string, ItemArt>, slots: Slots): Container {
   const [ox, oy] = room.origin
   const look = shellLook(room.shell)
   const accent = accentOf(room)
@@ -107,9 +118,29 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
   }
   layer.addChild(back)
 
-  const things = new Graphics()
+  // Furniture back to front: a sprite where one exists, else the placeholder block.
+  const things = new Container()
+  let boxes: Graphics | null = null
   for (const block of room.blocks) {
-    drawBox(things, block.x, block.y, block.w, block.d, block.z, block.h, blockColour(block, accent), block.isNew ? P.gold : P.outline, block.isNew ? 2.5 : 1)
+    const item = art.get(block.item)
+    if (!item) {
+      if (!boxes) things.addChild((boxes = new Graphics()))
+      drawBox(boxes, block.x, block.y, block.w, block.d, block.z, block.h, blockColour(block, accent), block.isNew ? P.gold : P.outline, block.isNew ? 2.5 : 1)
+      continue
+    }
+    boxes = null
+    if (block.isNew) {
+      // New since the last visit: a gold outline on its footprint, under the sprite.
+      const ring = new Graphics()
+      ring.poly(pts([iso(block.x, block.y, block.z), iso(block.x + block.w, block.y, block.z), iso(block.x + block.w, block.y + block.d, block.z), iso(block.x, block.y + block.d, block.z)])).stroke({ color: P.gold, width: 2.5 })
+      things.addChild(ring)
+    }
+    const place = spritePlacement(block, item.entry, wallOf(slots, block.slot))
+    const sprite = new Sprite(item.texture)
+    sprite.anchor.set(place.anchorX, place.anchorY)
+    sprite.scale.set(place.scaleX, place.scaleY)
+    sprite.position.set(place.x, place.y)
+    things.addChild(sprite)
   }
   layer.addChild(things)
 
@@ -286,7 +317,7 @@ export function PalaceCanvas({
     world: Container
     rooms: Container
     nato: Sprite | null
-    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture } | null
+    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; items: Map<string, ItemArt> } | null
   } | null>(null)
   const camera = useRef<{ now: Camera; goal: Camera; free: boolean }>({ now: { scale: 1, x: 0, y: 0 }, goal: { scale: 1, x: 0, y: 0 }, free: false })
   const walk = useRef<{
@@ -346,7 +377,21 @@ export function PalaceCanvas({
         walk: await Promise.all(NATO_FRAMES.walk.map(loadTexture)),
         sit: await loadTexture(NATO_FRAMES.sit),
         helpers: Object.fromEntries(helperTextures),
-        lobby: await loadTexture(LOBBY_SPRITE.url)
+        lobby: await loadTexture(LOBBY_SPRITE.url),
+        // A sprite whose file fails to load stays a block.
+        items: new Map(
+          (
+            await Promise.all(
+              ITEM_SPRITES.map(async ({ url, ...entry }) => {
+                try {
+                  return [[entry.id, { entry, texture: await loadTexture(url) }] as const]
+                } catch {
+                  return []
+                }
+              })
+            )
+          ).flat()
+        )
       }
       const standing = textures.walk[3]!
       if (cancelled) return
@@ -496,7 +541,7 @@ export function PalaceCanvas({
       // Zoomed into a room, the others step back so their walls do not crowd the view.
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
-      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id)
+      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id, s.textures.items, floor.slots)
       drawDecay(layer, room)
       if (focus === room.id && highlights && highlights.length > 0) drawTargets(layer, room, floor.slots, highlights)
       const before = decayLevels.current.get(room.id)

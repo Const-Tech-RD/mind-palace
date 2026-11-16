@@ -508,7 +508,7 @@ export function PalaceView() {
                       )
                     })}
                   </ul>
-                  <p className="mt-3 text-xs text-muted">Each piece is a placeholder block until its drawing exists. The walls and floor warm up as the streak grows.</p>
+                  <p className="mt-3 text-xs text-muted">Pieces without a drawing yet show as plain blocks. The walls and floor warm up as the streak grows.</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
                       type="button"

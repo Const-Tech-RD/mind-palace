@@ -76,7 +76,7 @@ function quietProject(db, roomId, weekdays) {
 
 /** Rooms the person "made": the old placeholder rooms, rebuilt from library items, plus extras by id. */
 const ROOMS = {
-  coding: { name: 'Coding room', area: 'software', accent: 0, cell: [-1, -1], items: [['coding_laptop', 'desk_center'], ['coding_monitor', 'desk_center'], ['coding_whiteboard', 'wall_right_b'], ['coding_rack', 'corner_right'], ['coding_arcade', 'floor_right']] },
+  coding: { name: 'Coding room', area: 'software', accent: 0, cell: [-1, -1], items: [['coding_laptop', 'desk_center'], ['coding_monitor', 'desk_right'], ['coding_whiteboard', 'wall_right_b'], ['coding_rack', 'corner_right'], ['coding_arcade', 'floor_right']] },
   music: { name: 'Music studio', area: 'music', accent: 1, cell: [-1, 0], items: [['music_mic', 'beside_seat'], ['music_speakers', 'desk_left'], ['music_keyboard', 'floor_right'], ['music_guitar', 'corner_right'], ['music_mixer', 'desk_center']] },
   art: { name: 'Art workshop', area: 'art', accent: 2, cell: [0, -1], items: [['art_sketchbook', 'desk_center'], ['art_easel', 'corner_right'], ['art_paint_cart', 'beside_seat'], ['art_pegboard', 'wall_right_b'], ['art_pottery_wheel', 'floor_right']] },
   finance: { name: 'Finance', area: 'finance', accent: 3, cell: [-2, 0], items: [['finance_ledger', 'desk_center'], ['finance_chart', 'wall_right_b'], ['finance_safe', 'corner_right'], ['finance_filing_cabinet', 'floor_right']] }
@@ -269,7 +269,7 @@ async function editorRun() {
     page = run.page
     await settle(page)
     const afterUnlock = where(await page.evaluate(() => window.mindPalace.invoke('palace:view', { focus: 'coding' })))
-    check(afterUnlock.placed['coding_monitor@desk_center#0'] === 'desk_center', 'the new monitor lands on the desk')
+    check(afterUnlock.placed['coding_monitor@desk_right#0'] === 'desk_right', 'the new monitor lands on the desk')
     check(afterUnlock.placed['base_chair@seat#0'] === 'beside_seat' && afterUnlock.placed['base_crate@seat#0'] === 'seat', 'nothing the user arranged moved')
     await page.locator('[data-agent="coding"]').first().click()
     await settle(page)
