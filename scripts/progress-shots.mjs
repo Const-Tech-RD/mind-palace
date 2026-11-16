@@ -153,7 +153,7 @@ check('the unticked chat is remembered as dismissed', read('select count(*) n fr
 const rowText = async (title) => (await view.locator(`[data-milestone="${title}"]`).innerText()).toLowerCase()
 check('a real commit shows as confirmed', (await rowText('Login')).includes('confirmed'))
 check('a made-up commit shows as from chats', (await rowText('Signup')).includes('from chats'))
-check('a real plan line shows as confirmed', (await rowText('Payments')).includes('confirmed'))
+check('a planned milestone shows no confirmed mark, even citing a plan line', !(await rowText('Payments')).includes('confirmed'))
 await shot(page, '2-drafted')
 
 // --- Hand edits, then a refresh that must respect them ------------------------------
@@ -200,11 +200,48 @@ await view.getByText('1 of 5').waitFor({ timeout: 10_000 })
 check('after a restart: 1 of 5, the rename and the waiting tick are still there', (await view.locator('[data-milestone="Accounts"]').count()) === 1 && (await view.locator('[data-proposal="Payments"]').count()) === 1)
 await shot(page, '4-after-restart')
 
+// --- Review fix: a waiting tick goes away once the person sets that milestone ----------
+await view.locator('[data-milestone="Payments"] input[type=checkbox]').check()
+await view.getByText('2 of 5').waitFor()
+check('a waiting tick disappears once that milestone is ticked by hand', (await view.locator('[data-proposal="Payments"]').count()) === 0)
+
+// --- Review fix: sweep results survive a reload before "Link these" -----------------------
+fake.sweep = { chat_ids: ['c-4'] }
+writeFileSync(fakeFile, JSON.stringify(fake))
+await view.getByRole('button', { name: 'Find more chats' }).click()
+await view.locator('[data-sweep]').waitFor({ timeout: 10_000 })
+await page.reload()
+await page.locator('.palace-canvas canvas').waitFor({ timeout: 30_000 })
+view = await openProgress(page)
+await view.getByText('2 of 5').waitFor({ timeout: 10_000 })
+await view.getByRole('button', { name: 'Find more chats' }).click()
+await view.locator('[data-sweep]').waitFor({ timeout: 10_000 }).catch(() => {})
+check('a chat offered but never answered is offered again', (await view.locator('[data-sweep] li', { hasText: 'Sourdough' }).count()) === 1)
+await view.locator('[data-sweep] li', { hasText: 'Sourdough' }).locator('input[type=checkbox]').uncheck().catch(() => {})
+await view.getByRole('button', { name: 'Link these' }).click().catch(() => {})
+
+// --- Review fix: deleting every milestone is not a dead end --------------------------------
+for (;;) {
+  const remove = view.getByRole('button', { name: /^Delete / }).first()
+  if ((await remove.count()) === 0) break
+  await remove.click()
+  await page.waitForTimeout(150)
+}
+const newMilestone = view.getByLabel('New milestone')
+check('with every milestone deleted, one can still be added', (await newMilestone.count()) === 1)
+if ((await newMilestone.count()) === 1) {
+  await newMilestone.fill('Start over')
+  await newMilestone.press('Enter')
+  await view.getByText('0 of 1').waitFor({ timeout: 5000 }).catch(() => {})
+  check('the added milestone counts', (await view.getByText('0 of 1').count()) === 1)
+}
+await shot(page, '4b-review-fixes')
+
 // --- A folder that is gone -----------------------------------------------------------
 await page.evaluate((projectId) => window.mindPalace.invoke('progress:folder', { projectId, folder: 'C:/mind-palace-no-such-folder' }), PROJECT)
 await view.getByRole('button', { name: 'Refresh', exact: true }).click()
 await view.locator('[data-folder]').getByText(/gone|not a git/i).waitFor({ timeout: 15_000 })
-check('a missing folder still refreshes and says why', (await view.getByText('1 of 5').count()) === 1)
+check('a missing folder still refreshes and says why', (await view.getByText('0 of 1').count()) === 1)
 await shot(page, '5-missing-folder')
 await quit(app)
 

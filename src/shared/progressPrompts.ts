@@ -125,42 +125,72 @@ export function interpretDigest(raw: z.infer<typeof digestSchema>): ChatDigest {
 // --- Evidence, shared by the draft and the refresh -----------------------------
 
 export interface KnownEvidence {
-  /** Short hashes from the git log. */
-  commitHashes: Set<string>
-  /** `file:line` of each plan checkbox. */
-  checkboxRefs: Set<string>
+  /** Short hash from the git log → its day. */
+  commits: Map<string, string>
+  /** `file:line` of each plan checkbox → whether it is ticked. */
+  checkboxes: Map<string, boolean>
   chatIds: Set<string>
 }
 
 const MODEL_EVIDENCE = ['commit', 'plan', 'chat'] as const
 const evidenceEnum = z.enum(MODEL_EVIDENCE)
 
-/** Evidence the model cited, checked: anything not found becomes chat evidence without a reference. */
-function checkEvidence(kind: (typeof MODEL_EVIDENCE)[number], ref: string, known: KnownEvidence): { evidence: Evidence; evidenceRef: string | null } {
+/**
+ * Evidence the model cited, checked against what was sent: anything not found
+ * becomes chat evidence without a reference. A plan box backs a done claim
+ * only when it is ticked. A commit also gives its day.
+ */
+function checkEvidence(
+  kind: (typeof MODEL_EVIDENCE)[number],
+  ref: string,
+  known: KnownEvidence,
+  claimsDone: boolean
+): { evidence: Evidence; evidenceRef: string | null; day: string | null } {
   const r = ref.trim()
   if (kind === 'commit' && r.length >= 7) {
-    for (const hash of known.commitHashes) if (r.startsWith(hash) || hash.startsWith(r)) return { evidence: 'commit', evidenceRef: hash }
+    for (const [hash, when] of known.commits) if (r.startsWith(hash) || hash.startsWith(r)) return { evidence: 'commit', evidenceRef: hash, day: when }
   }
-  if (kind === 'plan' && known.checkboxRefs.has(r)) return { evidence: 'plan', evidenceRef: r }
-  return { evidence: 'chat', evidenceRef: known.chatIds.has(r) ? r : null }
+  if (kind === 'plan' && known.checkboxes.has(r) && (!claimsDone || known.checkboxes.get(r))) return { evidence: 'plan', evidenceRef: r, day: null }
+  return { evidence: 'chat', evidenceRef: known.chatIds.has(r) ? r : null, day: null }
+}
+
+/** Characters of evidence (chats, commits, plan boxes) sent to a draft or refresh. */
+export const EVIDENCE_INPUT_MAX = 80_000
+
+/** Lines in order until `max` characters; how many were left out. */
+function fit(lines: string[], max: number): { text: string; left: number } {
+  const kept: string[] = []
+  let size = 0
+  for (const line of lines) {
+    if (size + line.length + 1 > max) break
+    kept.push(line)
+    size += line.length + 1
+  }
+  return { text: kept.join('\n'), left: lines.length - kept.length }
 }
 
 function evidenceSection(input: { digests: Array<{ chatId: string; title: string; digest: ChatDigest }>; commits: Commit[]; checkboxes: Checkbox[] }): string {
-  const chats =
-    input.digests.length === 0
-      ? 'None.'
-      : input.digests
-          .map((d) =>
-            [
-              `### ${d.chatId} · ${clip(d.title, 80)}`,
-              ...d.digest.done.map((x) => `- done ${x.day}: ${x.item}`),
-              ...d.digest.planned.map((x) => `- planned: ${x}`)
-            ].join('\n')
-          )
-          .join('\n')
-  const commits = input.commits.length === 0 ? 'None.' : input.commits.map((c) => `- ${c.hash} ${c.day} ${clip(c.subject, 120)}`).join('\n')
-  const boxes = input.checkboxes.length === 0 ? 'None.' : input.checkboxes.map((b) => `- ${b.file}:${b.line} [${b.done ? 'x' : ' '}] ${clip(b.text, 120)}`).join('\n')
-  return ['## Chats (by id)', chats, '## Commits (short hash, day, subject)', commits, '## Plan checkboxes (file:line)', boxes].join('\n\n')
+  // Commits and plan boxes get a fixed share; chats get the rest. Whatever doesn't fit is named, not silently dropped.
+  const commits = fit(input.commits.map((c) => `- ${c.hash} ${c.day} ${clip(c.subject, 120)}`), EVIDENCE_INPUT_MAX * 0.2)
+  const boxes = fit(input.checkboxes.map((b) => `- ${b.file}:${b.line} [${b.done ? 'x' : ' '}] ${clip(b.text, 120)}`), EVIDENCE_INPUT_MAX * 0.25)
+  const chatBlocks = input.digests.map((d) =>
+    [
+      `### ${d.chatId} · ${clip(d.title, 80)}`,
+      ...d.digest.done.slice(0, 15).map((x) => `- done ${x.day}: ${clip(x.item, 160)}`),
+      ...d.digest.planned.slice(0, 10).map((x) => `- planned: ${clip(x, 160)}`)
+    ].join('\n')
+  )
+  const chats = fit(chatBlocks, EVIDENCE_INPUT_MAX - commits.text.length - boxes.text.length)
+  const section = (text: string, left: number, what: string): string =>
+    text === '' && left === 0 ? 'None.' : `${text}${left > 0 ? `\n(${left} more ${what} left out to keep this short.)` : ''}`
+  return [
+    '## Chats (by id)',
+    section(chats.text, chats.left, 'chats'),
+    '## Commits (short hash, day, subject)',
+    section(commits.text, commits.left, 'commits'),
+    '## Plan checkboxes (file:line)',
+    section(boxes.text, boxes.left, 'checkboxes')
+  ].join('\n\n')
 }
 
 const MILESTONE_RULES = [
@@ -227,7 +257,8 @@ export function interpretDraft(raw: z.infer<typeof draftSchema>, known: KnownEvi
     const key = foldTitle(title)
     if (key === '' || seen.has(key)) continue
     seen.add(key)
-    out.push({ title, status: m.status, doneOn: m.status === 'done' ? day(m.done_on) : null, ...checkEvidence(m.evidence, m.evidence_ref, known) })
+    const { day: commitDay, ...evidence } = checkEvidence(m.evidence, m.evidence_ref, known, m.status === 'done')
+    out.push({ title, status: m.status, doneOn: m.status === 'done' ? (day(m.done_on) ?? commitDay) : null, ...evidence })
     if (out.length === MAX_DRAFT_MILESTONES) break
   }
   return out
@@ -309,12 +340,13 @@ export function interpretRefresh(raw: z.infer<typeof refreshSchema>, known: Know
   for (const p of raw.proposals) {
     const title = cleanTitle(p.title)
     if (title === '') continue
-    const evidence = checkEvidence(p.evidence, p.evidence_ref, known)
+    const doneDay = day(p.done_on)
+    const { day: commitDay, ...evidence } = checkEvidence(p.evidence, p.evidence_ref, known, p.kind === 'tick' || doneDay !== null)
     if (p.kind === 'tick') {
       if (!known.milestoneIds.has(p.milestone_id)) continue
-      out.push({ kind: 'tick', milestoneId: p.milestone_id, title, afterId: null, ...evidence, doneOn: day(p.done_on) })
+      out.push({ kind: 'tick', milestoneId: p.milestone_id, title, afterId: null, ...evidence, doneOn: doneDay ?? commitDay })
     } else {
-      out.push({ kind: 'add', milestoneId: null, title, afterId: known.milestoneIds.has(p.after_id) ? p.after_id : null, ...evidence, doneOn: day(p.done_on) })
+      out.push({ kind: 'add', milestoneId: null, title, afterId: known.milestoneIds.has(p.after_id) ? p.after_id : null, ...evidence, doneOn: doneDay })
     }
   }
   return out

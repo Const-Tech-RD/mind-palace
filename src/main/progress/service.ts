@@ -11,7 +11,10 @@ import { detectFolder, normPath, type EditFact } from '@shared/folders'
 import {
   acceptProposal,
   applyEdit,
+  canAccept,
+  draftRows,
   filterProposals,
+  pendingProposals,
   progressOf,
   type Milestone,
   type MilestoneEdit,
@@ -91,7 +94,8 @@ export function createProgressService(deps: ProgressServiceDeps) {
     return {
       projectId,
       milestones: live,
-      proposals: repo.proposals(projectId).filter((p) => p.answered === null),
+      // Waiting proposals that still hold after the person's edits since they were made.
+      proposals: pendingProposals(repo.proposals(projectId), all),
       progress: progressOf(all),
       folder: project.folder,
       folderSource: project.folderSource,
@@ -171,8 +175,8 @@ export function createProgressService(deps: ProgressServiceDeps) {
   }
 
   const knownOf = (evidence: Evidence, chatIds: string[]): KnownEvidence => ({
-    commitHashes: new Set(evidence.commits.map((c) => c.hash)),
-    checkboxRefs: new Set(evidence.checkboxes.map((b) => `${b.file}:${b.line}`)),
+    commits: new Map(evidence.commits.map((c) => [c.hash, c.day])),
+    checkboxes: new Map(evidence.checkboxes.map((b) => [`${b.file}:${b.line}`, b.done])),
     chatIds: new Set(chatIds)
   })
 
@@ -221,7 +225,8 @@ export function createProgressService(deps: ProgressServiceDeps) {
       const project = mustProject(projectId)
       const startedAt = now().toISOString()
       const rooms = [...new Set([project.roomId, deps.mailRoom()])]
-      const candidates = repo.sweepCandidates(projectId, rooms, project.sweptAt)
+      // Every chat not linked and not dismissed: one offered but never answered (the app closed, a reload) comes back.
+      const candidates = repo.sweepCandidates(projectId, rooms, null)
       const linkedIds = repo.linkedChatIds(projectId)
       const linkedFirst = repo.firstMessages(linkedIds)
       const linkedTitles = repo.chatTitles(linkedIds)
@@ -254,7 +259,8 @@ export function createProgressService(deps: ProgressServiceDeps) {
       return once(projectId, async () => {
         const project = mustProject(projectId)
         if (!project.folder && project.folderSource !== 'user') await detectAndStoreFolder(projectId).catch(() => {})
-        if (repo.milestones(projectId).length > 0) return refreshWork(projectId)
+        const live = (): number => repo.milestones(projectId).filter((m) => m.deletedAt === null).length
+        if (live() > 0) return refreshWork(projectId)
         const digests = await digestsFor(projectId)
         const evidence = await evidenceFor(projectId)
         const raw = await ask(
@@ -267,9 +273,19 @@ export function createProgressService(deps: ProgressServiceDeps) {
         const drafted = interpretDraft(raw, knownOf(evidence, digests.map((d) => d.chatId)))
         repo.transaction(() => {
           // Someone may have added milestones by hand meanwhile: then the draft is not written.
-          if (repo.milestones(projectId).length > 0) return
-          const list: Milestone[] = drafted.map((m, i) => ({ ...m, id: randomUUID(), originalTitle: m.title, position: i, edited: false, statusByUser: false, deletedAt: null }))
-          repo.saveMilestones(projectId, list)
+          if (live() > 0) return
+          // After everything was deleted, titles the person deleted or renamed away stay gone.
+          const existing = repo.milestones(projectId)
+          const list: Milestone[] = draftRows(drafted, existing).map((m, i) => ({
+            ...m,
+            id: randomUUID(),
+            originalTitle: m.title,
+            position: i,
+            edited: false,
+            statusByUser: false,
+            deletedAt: null
+          }))
+          repo.saveMilestones(projectId, [...existing, ...list])
         })
       })
     },
@@ -287,8 +303,11 @@ export function createProgressService(deps: ProgressServiceDeps) {
       if (!proposal) throw new Error(`There is no proposal "${proposalId}".`)
       repo.transaction(() => {
         if (proposal.answered !== null) return
-        if (accept) repo.saveMilestones(proposal.projectId, acceptProposal(repo.milestones(proposal.projectId), proposal, ctx()))
-        repo.answerProposal(proposalId, accept ? 'accepted' : 'dismissed')
+        const milestones = repo.milestones(proposal.projectId)
+        // One the person's edits have overtaken is dismissed instead: their edit wins.
+        const applies = accept && canAccept(proposal, milestones)
+        if (applies) repo.saveMilestones(proposal.projectId, acceptProposal(milestones, proposal, ctx()))
+        repo.answerProposal(proposalId, applies ? 'accepted' : 'dismissed')
       })
       deps.onChanged(proposal.projectId)
       return get(proposal.projectId)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptProposal, applyEdit, filterProposals, foldTitle, progressOf, type Milestone, type Proposal } from '../src/shared/milestones'
+import { acceptProposal, applyEdit, draftRows, filterProposals, foldTitle, pendingProposals, progressOf, type Milestone, type Proposal } from '../src/shared/milestones'
 
 let n = 0
 const ctx = { today: '2026-11-16', now: '2026-11-16T12:00:00.000Z', newId: () => `new-${++n}` }
@@ -153,5 +153,43 @@ describe('progressOf', () => {
     expect(progressOf([])).toBeNull()
     expect(progressOf(applyEdit(list(), { kind: 'delete', id: 'c' }, ctx))).toEqual({ done: 1, total: 2 })
     expect(progressOf(applyEdit(list(), { kind: 'delete', id: 'a' }, ctx))).toEqual({ done: 0, total: 2 })
+  })
+})
+
+describe('pendingProposals (review fix: waiting proposals follow later hand edits)', () => {
+  const wait = (p: Fresh): Proposal => ({ ...p, id: `w-${++n}`, answered: null })
+
+  it('drops a waiting tick once the person set that status, deleted it, or it is done', () => {
+    let l = list()
+    const onB = wait(tick('b', 'Payments', 'commit', 'abc1234'))
+    const onC = wait(tick('c', 'Dashboard', 'commit', 'abc1234'))
+    const onA = wait(tick('a', 'Login', 'commit', 'abc1234'))
+    l = applyEdit(l, { kind: 'tick', id: 'b', done: false }, ctx)
+    l = applyEdit(l, { kind: 'delete', id: 'c' }, ctx)
+    expect(pendingProposals([onB, onC, onA], l)).toEqual([])
+  })
+
+  it('drops a waiting add once a milestone has that title, and keeps the rest', () => {
+    const l = applyEdit(list(), { kind: 'add', title: 'Emails', afterId: null }, ctx)
+    const emails = wait(add('emails'))
+    const launch = wait(add('Launch'))
+    expect(pendingProposals([emails, launch], l)).toEqual([launch])
+  })
+
+  it('ignores answered proposals', () => {
+    expect(pendingProposals([past(add('Launch'), 'dismissed')], list())).toEqual([])
+  })
+})
+
+describe('draftRows (review fix: a new draft after deleting everything)', () => {
+  it('drops drafted titles that match a deleted or renamed milestone', () => {
+    let l = applyEdit(list(), { kind: 'rename', id: 'b', title: 'Stripe' }, ctx)
+    for (const id of ['a', 'b', 'c']) l = applyEdit(l, { kind: 'delete', id }, ctx)
+    const drafted = [
+      { title: 'login', status: 'done' as const, doneOn: '2026-10-01', evidence: 'chat' as const, evidenceRef: null },
+      { title: 'Payments', status: 'planned' as const, doneOn: null, evidence: 'chat' as const, evidenceRef: null },
+      { title: 'Launch', status: 'planned' as const, doneOn: null, evidence: 'chat' as const, evidenceRef: null }
+    ]
+    expect(draftRows(drafted, l).map((d) => d.title)).toEqual(['Launch'])
   })
 })

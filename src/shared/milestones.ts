@@ -229,3 +229,31 @@ export function progressOf(list: Milestone[]): { done: number; total: number } |
   if (live.length === 0) return null
   return { done: live.filter((m) => m.status === 'done').length, total: live.length }
 }
+
+/** Whether a waiting proposal still makes sense against the milestones as they are now. */
+function stillValid(p: Proposal, milestones: Milestone[]): boolean {
+  if (p.kind === 'tick') {
+    const m = milestones.find((x) => x.id === p.milestoneId)
+    return m !== undefined && isLive(m) && m.status === 'planned' && !m.statusByUser
+  }
+  const key = foldTitle(p.title)
+  return !milestones.some((m) => foldTitle(m.title) === key || foldTitle(m.originalTitle) === key)
+}
+
+/**
+ * The proposals to show: waiting ones that still hold after whatever the
+ * person did since they were made (a hand tick, a delete, a milestone added
+ * with the same title). Accepting one that no longer holds is refused.
+ */
+export function pendingProposals(proposals: Proposal[], milestones: Milestone[]): Proposal[] {
+  return proposals.filter((p) => p.answered === null && stillValid(p, milestones))
+}
+
+/** Whether accepting this waiting proposal is still allowed. */
+export const canAccept = (p: Proposal, milestones: Milestone[]): boolean => p.answered === null && stillValid(p, milestones)
+
+/** A draft written over a list whose milestones were all deleted: titles the person deleted or renamed away stay gone. */
+export function draftRows<T extends { title: string }>(drafted: T[], existing: Milestone[]): T[] {
+  const taken = new Set(existing.flatMap((m) => [foldTitle(m.title), foldTitle(m.originalTitle)]))
+  return drafted.filter((d) => !taken.has(foldTitle(d.title)))
+}

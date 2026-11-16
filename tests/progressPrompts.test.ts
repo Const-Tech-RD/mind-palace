@@ -25,8 +25,8 @@ import {
 import type { Milestone } from '../src/shared/milestones'
 
 const known = {
-  commitHashes: new Set(['a1b2c3d']),
-  checkboxRefs: new Set(['docs/plan.md:3']),
+  commits: new Map([['a1b2c3d', '2026-10-02']]),
+  checkboxes: new Map([['docs/plan.md:3', true]]),
   chatIds: new Set(['cc-1'])
 }
 
@@ -101,7 +101,7 @@ describe('interpretDraft', () => {
   })
 
   it('a planned milestone has no day; a done one with a bad day keeps none', () => {
-    const out = interpretDraft(draftSchema.parse({ milestones: [row({ status: 'planned' }), row({ title: 'B', done_on: 'last week' })] }), known)
+    const out = interpretDraft(draftSchema.parse({ milestones: [row({ status: 'planned' }), row({ title: 'B', done_on: 'last week', evidence: 'chat', evidence_ref: 'cc-1' })] }), known)
     expect(out.map((m) => m.doneOn)).toEqual([null, null])
   })
 
