@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, dialog } from 'electron'
+import { app, dialog, session, systemPreferences } from 'electron'
 import { formatIssue } from '@shared/catalog'
 import type { ChatEvent } from '@shared/chat'
 import { APP_EVENT_CHANNEL, CHAT_EVENT_CHANNEL, type AppEvent, type AppStatus } from '@shared/ipc'
@@ -8,6 +8,7 @@ import { SCHEDULER_MINUTES } from '@shared/reminders'
 import { CatalogError, loadCatalog, type LoadedCatalog } from './catalog/loader'
 import { askJson } from './chat/claude'
 import { createMusic, registerMusicScheme } from './music'
+import { createSteward } from './steward'
 import { createChatRepo } from './chat/repo'
 import { createChatService, type ChatService } from './chat/service'
 import { createClassifier } from './palace/classifier'
@@ -219,6 +220,23 @@ function start(): void {
   handle('music:get', () => music.track())
   handle('music:choose', () => music.choose(getMainWindow()))
   handle('music:clear', () => music.clear())
+
+  // The steward: voice orders inside the app. The speech model lives in the app's folder
+  // (or where a test points it, so it is downloaded once and not per test run).
+  const steward = createSteward({
+    modelsDir: process.env['MIND_PALACE_MODELS_DIR'] ?? join(app.getPath('userData'), 'models'),
+    askModel: askSmallModel,
+    log: (message) => console.log(`[mind-palace] ${message}`)
+  })
+  // Only the microphone, and only for this app's own window.
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, allow) => allow(permission === 'media'))
+  handle('steward:hearing', () => steward.hearing())
+  handle('steward:prepare', async () => {
+    const microphone = process.platform === 'darwin' ? await systemPreferences.askForMediaAccess('microphone') : true
+    return { ...steward.prepare(), microphone }
+  })
+  handle('steward:transcribe', ({ samples }) => steward.transcribe(samples))
+  handle('steward:interpret', ({ order, context }) => steward.interpret(order, context))
 
   handle('reminder:notifications', ({ enabled }) => {
     if (enabled !== undefined) db.setSetting('notifications', enabled ? 'on' : 'off')

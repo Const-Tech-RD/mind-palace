@@ -559,3 +559,27 @@ Items 1 and 7 of the polish list, with art from one Gemini chat.
 - Gemini's "full size" download of the carpet and the lantern came back as different pictures from the previews (a room painted behind the carpet, ground under the lantern). Those two are captures of the correct previews, so they are lower resolution (carpet band 128 px tall, lantern 239 px tall). The others are the full-size downloads.
 
 Verified: typecheck, 338 unit tests, E2E S5 9/9, the editor check 4/4, a screenshot of the map. Not verified: S1 to S4 after this change; the look on a 1x display; how the surround reads when a room is opened (the capture was disturbed).
+
+## Music and the steward (2026-11-16)
+
+Work from here on is on the branch `nato/palace`. PR #6 is a draft and is not to be merged for now; the direction is to be decided with Claudio.
+
+### Music
+
+- The palace plays one audio file the person picks from their own computer (`music:choose` opens the system file picker). Nothing is downloaded: a YouTube link was asked for first, but it was someone else's playlist.
+- The renderer is sandboxed, so the main process serves the chosen file through a private scheme, `mp-media://` (`src/main/music.ts`), which only ever answers with that file. The CSP allows `media-src mp-media:`; the window's autoplay policy lets it start without a click.
+- `src/renderer/src/music.ts` holds the audio element outside React; `MusicPlayer.tsx` sits at the foot of the rail with play/pause, mute, volume, Change and Remove. Volume, mute and a pause are remembered; a pause survives a restart.
+
+### The steward (voice orders)
+
+- **Scope, decided by the owner**: it acts only inside the app (rooms, chats, projects, reminders, music). It cannot touch files or run anything. Deleting a chat and dropping a project wait for a yes.
+- **Hearing**: Whisper base, 8-bit, through `@huggingface/transformers` in the main process (`src/main/steward.ts`), about 76 MB, downloaded from Hugging Face once into `<userData>/models` the first time voice is used (`MIND_PALACE_MODELS_DIR` overrides the folder, for tests). The recording never leaves the machine. The library does not detect the language (it assumes English, which translates Spanish speech); the module compares the model's own scores for the Spanish and English language tokens and transcribes in the winner.
+- **Understanding**: one call to the small model with the palace as it stands (`buildStewardPrompt`) and a JSON schema; the answer is a spoken reply, its language, and a list of actions. `checkReply` drops any action with an unknown type or an id that is not in the palace.
+- **Acting**: `src/renderer/src/steward.ts` runs each action through the app's own store, the same calls the buttons make. An order that needs real work becomes a new chat; when its answer is written, the beginning is read aloud.
+- **Speaking**: the system's voices through `speechSynthesis`, in the reply's language; the music is turned down while it listens and speaks. "Speak" can be switched off.
+- **Using it**: the Steward pill at the foot of the window, or Cmd/Ctrl+J to start listening. It stops by itself after a pause. Orders can also be typed.
+- New dependency: `@huggingface/transformers` (brings `onnxruntime-node` and `sharp`, both native).
+
+Verified: typecheck; 352 unit tests (14 new for the steward's rules); E2E S6 (music plays a real file, pause, mute, stays paused after reload) and S7 (an order in English, one in Spanish, delete waits for yes and no cancels, and recordings made with the Mac's voices are transcribed locally in both languages); the full E2E run otherwise as before.
+
+Not verified: a real microphone (the tests feed recordings to the transcriber directly, so the recording code, the silence detection and the macOS microphone prompt have not run); the spoken voice (switched off in tests); reading a written answer aloud; the music file picker itself (the test sets the file in the database); a packaged build, where the native speech runtime and the microphone usage description need checking.

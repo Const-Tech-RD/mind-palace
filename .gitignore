@@ -12,3 +12,4 @@ test-report.zip
 *.sqlite-*
 .env
 .env.*
+.cache/

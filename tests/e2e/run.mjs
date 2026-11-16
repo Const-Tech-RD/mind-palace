@@ -10,7 +10,7 @@
  * Writes test-report/results.json and screenshots; report.mjs turns them into a PDF.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -98,7 +98,7 @@ function expect(condition, message) {
 }
 
 const stopButton = (page) => page.getByRole('button', { name: 'Stop', exact: true })
-const sendButton = (page) => page.getByRole('button', { name: 'Send', exact: true })
+const sendButton = (page) => page.getByTestId('chat-panel').getByRole('button', { name: 'Send', exact: true })
 const messageBox = (page) => page.getByLabel('Message', { exact: true })
 const chatRow = (page, title) => page.locator('nav[aria-label="Chats"] li', { hasText: title }).first()
 const groupNames = (page) => page.locator('nav[aria-label="Chats"] h2').allInnerTexts()
@@ -1355,9 +1355,146 @@ async function sessionMusic() {
   rmSync(userData, { recursive: true, force: true })
 }
 
+// ---------------------------------------------------------------- S7: the steward
+
+/** A spoken phrase as 16 kHz mono samples, made with the Mac's own voice. Null where that is not possible. */
+function spokenSamples(dir, name, text, voice) {
+  if (process.platform !== 'darwin') return null
+  try {
+    const aiff = join(dir, `${name}.aiff`)
+    const wav = join(dir, `${name}.wav`)
+    execFileSync('say', [...(voice ? ['-v', voice] : []), '-o', aiff, text])
+    execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', aiff, wav])
+    const bytes = readFileSync(wav)
+    const at = bytes.indexOf('data') + 8
+    const out = new Array((bytes.length - at) >> 1)
+    for (let i = 0; i < out.length; i++) out[i] = bytes.readInt16LE(at + i * 2) / 32768
+    return out
+  } catch {
+    return null
+  }
+}
+
+async function sessionSteward() {
+  const daysAgo = (n) => iso(n * 24 * 60)
+  const userData = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-steward-'))
+  // The speech model is kept between runs, so it is downloaded once.
+  const modelsDir = join(root, '.cache', 'models')
+  let { app, page } = await launch(userData, { MIND_PALACE_MODELS_DIR: modelsDir })
+  await app.close()
+  sql(
+    userData,
+    `insert into chats (id, title, room_id, room_source, classified_at, created_at, last_message_at) values ('c-old', 'Old packing list', 'mailroom', 'model', ${q(iso(60))}, ${q(daysAgo(3))}, ${q(daysAgo(3))});` +
+      `insert into messages (id, chat_id, role, content, created_at) values ('c-old-m1', 'c-old', 'user', 'What should I pack for a weekend?', ${q(daysAgo(3))});`
+  )
+  ;({ app, page } = await launch(userData, { MIND_PALACE_MODELS_DIR: modelsDir }))
+  // Replies are not spoken aloud during the run.
+  await page.evaluate(() => window.localStorage.setItem('mind-palace.steward-voice', '0'))
+  await page.reload()
+  await page.getByTestId('palace-stage').waitFor({ timeout: 15_000 })
+  const failShot = () => shot(page, 'failure', 'State when the case failed')
+  const steward = page.getByTestId('steward')
+  const stageRoom = () => page.getByTestId('palace-stage').getAttribute('data-room')
+  const tell = async (text) => {
+    if (!(await steward.getByLabel('Order for the steward').count())) await steward.getByRole('button', { name: /Steward/ }).click()
+    await steward.getByLabel('Order for the steward').fill(text)
+    await steward.getByRole('button', { name: 'Send' }).click()
+    await until(async () => (await steward.getAttribute('data-status')) !== 'idle', { timeout: 5_000, every: 100, what: 'the steward to start' }).catch(() => {})
+    await until(async () => (await steward.getAttribute('data-status')) === 'idle', { timeout: 90_000, what: 'the steward to finish' })
+    const error = steward.getByRole('alert')
+    if (await error.count()) throw new Error(`the steward reported: ${await error.innerText()}`)
+    return (await steward.getByTestId('steward-said').innerText()).replace(/^Steward\s*/i, '').trim()
+  }
+
+  await testCase(
+    {
+      id: 'W1', area: 'Steward', title: 'An order in English is carried out and answered in English',
+      steps: ['Open the steward and type: "Take me to the Music studio."'],
+      expected: 'The palace opens the Music studio, and the steward says so in English, in a sentence or two.',
+      failShot
+    },
+    async () => {
+      const said = await tell('Take me to the Music studio.')
+      await until(async () => (await stageRoom()) === 'music', { timeout: 10_000, what: 'the Music studio to open' })
+      const language = await steward.getAttribute('data-language')
+      expect(language === 'en', `the reply's language was ${language}`)
+      expect(said.length > 0 && said.length < 240, `the reply was: ${said}`)
+      return { observed: `Opened the Music studio. Said: "${said}"`, screenshots: [await shot(page, 'W1-english', 'W1 · The steward after an order in English: the room is open and the reply is shown')] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'W2', area: 'Steward', title: 'An order in Spanish is carried out and answered in Spanish',
+      steps: ['Type: "Llévame al cuarto de código y empieza un chat nuevo ahí."'],
+      expected: 'The Coding room opens with a new chat that will be filed there, and the steward answers in Spanish.',
+      failShot
+    },
+    async () => {
+      const said = await tell('Llévame al cuarto de código y empieza un chat nuevo ahí.')
+      await page.getByTestId('chat-panel').getByText('This chat will be filed in the Coding room.').waitFor({ timeout: 10_000 })
+      expect((await stageRoom()) === 'coding', `the room in view was ${await stageRoom()}`)
+      const language = await steward.getAttribute('data-language')
+      expect(language === 'es', `the reply's language was ${language}`)
+      await page.getByTestId('chat-panel').getByRole('button', { name: 'Close chat' }).click()
+      return { observed: `Opened the Coding room with a new chat. Said: "${said}"`, screenshots: [await shot(page, 'W2-spanish', 'W2 · The same in Spanish')] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'W3', area: 'Steward', title: 'What cannot be undone waits for a yes',
+      steps: ['Type: "Delete the chat called Old packing list."', 'Answer "no".', 'Ask again, and answer "yes".'],
+      expected: 'The steward asks before deleting and the chat is still there. "No" cancels it. Asked again and told "yes", the chat is deleted.',
+      failShot
+    },
+    async () => {
+      const chatCount = () => sql(userData, "select count(*) from chats where id = 'c-old'")
+      const asked = await tell('Delete the chat called Old packing list.')
+      await steward.getByTestId('steward-confirm').waitFor({ timeout: 5_000 })
+      expect(chatCount() === '1', 'the chat was deleted before any yes')
+      const held = await shot(page, 'W3-confirm', 'W3 · Asked to delete a chat: the steward waits for a yes')
+      const cancelled = await tell('no')
+      expect(cancelled === 'Cancelled.', `after "no" it said: ${cancelled}`)
+      expect(chatCount() === '1', 'the chat was deleted after a no')
+      expect((await steward.getByTestId('steward-confirm').count()) === 0, 'the confirmation was still showing after a no')
+      await tell('Delete the chat called Old packing list.')
+      await steward.getByTestId('steward-confirm').waitFor({ timeout: 5_000 })
+      const done = await tell('yes')
+      await until(() => chatCount() === '0', { timeout: 10_000, what: 'the chat to be deleted' })
+      return { observed: `Asked first ("${asked}"). "no" left the chat; "yes" deleted it ("${done}").`, screenshots: [held] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'W4', area: 'Steward', title: 'Speech is transcribed on this computer, in Spanish and in English',
+      steps: ['Give the app a recording of "Open the coding room" and one of "Pausa la música, por favor", made with the Mac\'s voices.'],
+      expected: 'Each comes back as text in its own language, with the language named. The speech model runs locally.',
+      failShot
+    },
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-voice-'))
+      const english = spokenSamples(dir, 'en', 'Open the coding room')
+      const spanish = spokenSamples(dir, 'es', 'Pausa la música, por favor', 'Paulina')
+      if (!english || !spanish) throw new Error('could not make the recordings (needs macOS with the Paulina voice)')
+      const hear = (samples) => page.evaluate((s) => window.mindPalace.invoke('steward:transcribe', { samples: new Float32Array(s) }), samples)
+      const en = await hear(english)
+      const es = await hear(spanish)
+      rmSync(dir, { recursive: true, force: true })
+      expect(en.language === 'en' && /coding room/i.test(en.text), `the English recording came back as ${JSON.stringify(en)}`)
+      expect(es.language === 'es' && /m[uú]sica/i.test(es.text), `the Spanish recording came back as ${JSON.stringify(es)}`)
+      return { observed: `English: "${en.text}". Spanish: "${es.text}".`, screenshots: [] }
+    }
+  )
+
+  await app.close()
+  rmSync(userData, { recursive: true, force: true })
+}
+
 // ---------------------------------------------------------------- main
 
-const sessions = { S1: sessionChat, S2: sessionProjects, S3: sessionAuth, S4: sessionReminders, S5: sessionPalace, S6: sessionMusic }
+const sessions = { S1: sessionChat, S2: sessionProjects, S3: sessionAuth, S4: sessionReminders, S5: sessionPalace, S6: sessionMusic, S7: sessionSteward }
 const startedAt = new Date()
 for (const [name, run] of Object.entries(sessions)) {
   if (only && only !== name) continue

@@ -11,6 +11,7 @@ import type { PalaceView } from './palace'
 import type { PlacementChange } from './placements'
 import type { ProjectAction, ProjectSummary } from './projects'
 import type { ReminderItem, ReminderResponse } from './reminders'
+import type { StewardContext, StewardLanguage } from './steward'
 
 export interface IpcContract {
   ping: {
@@ -137,6 +138,33 @@ export interface IpcContract {
     request: void
     response: null
   }
+  /** Whether the steward can hear yet: the speech model is absent, loading, ready, or failed. */
+  'steward:hearing': {
+    request: void
+    response: HearingStatus
+  }
+  /** Starts loading the speech model (downloading it the first time) and asks the system for the microphone. */
+  'steward:prepare': {
+    request: void
+    response: HearingStatus & { microphone: boolean }
+  }
+  /** Words from a mono recording at 16 kHz, and their language. Transcribed on this computer. */
+  'steward:transcribe': {
+    request: { samples: Float32Array }
+    response: { text: string; language: StewardLanguage }
+  }
+  /** Turns an order into a spoken reply and in-app actions. `reply` is unchecked: see `checkReply`. */
+  'steward:interpret': {
+    request: { order: string; context: StewardContext }
+    response: { ok: true; reply: unknown } | { ok: false; error: string }
+  }
+}
+
+export interface HearingStatus {
+  state: 'absent' | 'loading' | 'ready' | 'error'
+  /** 0 to 100 while loading. */
+  progress: number
+  detail: string | null
 }
 
 /** The music file the person chose. Only its name leaves the main process. */
@@ -201,7 +229,11 @@ export const IPC_CHANNELS = [
   'reminder:notifications',
   'music:get',
   'music:choose',
-  'music:clear'
+  'music:clear',
+  'steward:hearing',
+  'steward:prepare',
+  'steward:transcribe',
+  'steward:interpret'
 ] as const satisfies readonly IpcChannel[]
 
 /** What the preload puts on `window.mindPalace`. */

@@ -6,6 +6,7 @@ import { PalaceView } from './components/PalaceView'
 import { ProjectsView } from './components/ProjectsView'
 import { RemindersView } from './components/RemindersView'
 import { Sidebar } from './components/Sidebar'
+import { Steward } from './components/Steward'
 import { useStore } from './store'
 
 /**
@@ -64,6 +65,7 @@ export function App() {
         </div>
       )}
       <CommandBar />
+      <Steward />
     </div>
   )
 }
