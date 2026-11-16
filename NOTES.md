@@ -461,3 +461,27 @@ Not verified:
 - `tests/e2e/run.mjs` was not run after these changes (it needs macOS for its report and the `sqlite3` CLI); some of its palace selectors (V1-V7, e.g. "Finished room" captions) may need updating.
 - Wheel zoom and drag-to-pan were not tried by hand after the camera change.
 - Variants: no item has variants yet, so the picker has not been seen.
+
+## Dynamic rooms (2026-11-16)
+
+Spec: `docs/superpowers/specs/2026-11-16-dynamic-rooms-design.md`. Plan: `docs/superpowers/plans/2026-11-16-dynamic-rooms.md`.
+
+- **A room is an area of life, made by the person.** A palace starts with the Mail room alone. The classifier tags every chat with an area (`chats.area`, kept once set). When 3 Mail-room chats share an area that has no room, a ghost room appears next to the palace with **Materialize** and **Not now**. "Not now" hides the area until 5 more chats arrive. Nothing becomes a room without that click.
+- **Materialize** makes one Haiku call: the room's name, its classifier text, and up to 5 signature items from `catalog/library.json` (items tagged by area). Picks that don't fit are dropped. Pick 1 is there from the start, picks 2–5 unlock at streak days 3, 8, 21, 34. The area's Mail-room chats move in, along with any project whose chats mostly moved.
+- **Find my rooms** (palace toolbar) tags the Mail room's chats in batches of 60. It is the path for the first import: `scripts/import-into-app.py` now puts everything in the Mail room.
+- **Earned stays earned:** `room_progress` keeps each room's best streak and goal count, recorded before any chat moves. Reopening a goal still takes its trophy back.
+- **The palace grows on a grid:** the Mail room is cell [0, 0], the front door. New rooms fill cells behind and beside it (`nextCell`) and never move. Hallways run between neighbouring cells, and walls facing a neighbour are low.
+- **The placeholder Coding, Music and Art rooms are gone.** Their items are in the library; migration 0006 moves their chats, projects and goals to the Mail room. Tests rebuild them in `tests/fixtures/rooms.ts`, and the eval files chats against `scripts/eval-rooms.json`.
+- **Accents** are tokens `--mp-room-accent-0..7`; a new room takes the lowest unused one.
+
+Verified:
+- `npm test` passes 401/401 and typecheck is clean.
+- `node scripts/palace-shots.mjs rooms` (stubbed model) passes 10/10.
+- A live run on a temporary copy with the real history: Find my rooms gave Software 9, Computing 4, Finance 2, 3D printing 2, and 1 each for productivity, home and career. Materialize made "Software": 9 chats and 5 projects moved, and the Mail room kept its 15-day best.
+- `npm run eval`: room accuracy 91.7 %, area agreement 100 %, project precision 100 %.
+
+The first live run named the area "Software projects and tech" and filed the ONI companion app under "gaming". The prompts now ask for 1–3 word names and say that building any app counts as software.
+
+Open:
+- Finance and 3D printing have 2 chats each, below the threshold of 3.
+- `MIND_PALACE_FAKE_MODEL` answers small-model calls from a JSON file in unpackaged builds only, for the screenshot runs.
