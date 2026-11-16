@@ -548,3 +548,14 @@ Nato asked for seven improvements one by one. Items 1 (painted walkways) and 7 (
 - **6. First-run tour.** Four short tips in a corner card the first time the palace is opened (`PalaceGuide.tsx`), kept in localStorage, reopened with the "?" button in the header. It blocks nothing; Esc or Skip closes it. The E2E and screenshot scripts skip it; V7 checks it returns after the store is cleared.
 
 Verified: typecheck, 338 unit tests, full E2E 38 of 38 with L3 skipped, the editor check 4/4, screenshots of a dusty room and of the tour. Not verified: Nato being covered by a wall and walking to a clicked thing, as motion (stills only).
+
+## Painted walkways and surround (2026-11-16)
+
+Items 1 and 7 of the polish list, with art from one Gemini chat.
+
+- **Flat pictures laid on the floor.** The floor boards, the carpet and the round rug are painted as seen from straight above. `onFloor()` in `PalaceCanvas.tsx` is the matrix that lays such a picture onto the isometric floor, so one picture serves any hallway, in either direction. Boards and carpet are `TilingSprite`s; `scripts/cut_ground.py` mirrors each tile beside itself so it repeats without a seam.
+- **Walkways**: boards on both hallways (tinted darker by `--mp-walk-tint`) and untinted on the plaza, the carpet along the route, a mat tinted with each room's colour, the rug in the lobby, and four lantern sprites. The brass edges are still drawn lines. The ground is built once per layout (`buildGround`), not on every redraw.
+- **Surround**: a painted library fills the stage around the palace (`ground/surround.jpg`), in the same style as the original paintings' backgrounds.
+- Gemini's "full size" download of the carpet and the lantern came back as different pictures from the previews (a room painted behind the carpet, ground under the lantern). Those two are captures of the correct previews, so they are lower resolution (carpet band 128 px tall, lantern 239 px tall). The others are the full-size downloads.
+
+Verified: typecheck, 338 unit tests, E2E S5 9/9, the editor check 4/4, a screenshot of the map. Not verified: S1 to S4 after this change; the look on a 1x display; how the surround reads when a room is opened (the capture was disturbed).

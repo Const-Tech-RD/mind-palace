@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 // The app's content-security policy forbids eval; this entry makes PixiJS build its shaders without it.
 import 'pixi.js/unsafe-eval'
-import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js'
+import { Application, ColorMatrixFilter, Container, Graphics, Matrix, Sprite, Texture, TilingSprite } from 'pixi.js'
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
 import { iso, LOBBY as LOBBY_AT, wayOut as wayOutOf, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall, type Rect } from '@shared/floor'
-import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
+import { GROUND, HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
 import { slotAt } from '@shared/editMode'
@@ -162,42 +162,77 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
 const diamond = (r: Rect, z = 0): number[] => pts([iso(r.x, r.y, z), iso(r.x + r.w, r.y, z), iso(r.x + r.w, r.y + r.d, z), iso(r.x, r.y + r.d, z)])
 const inset = (r: Rect, by: number): Rect => ({ x: r.x + by, y: r.y + by, w: r.w - by * 2, d: r.d - by * 2 })
 
+interface GroundTextures {
+  boards: Texture
+  carpet: Texture
+  rug: Texture
+  lantern: Texture
+  surround: Texture
+}
+
 /**
- * Where the character walks: boarded hallways with a brass edge, a carpet down
- * the middle of each, a mat in each room's colour at its entrance, and a
- * lantern-lit plaza where they cross.
+ * The matrix that lays a flat picture, seen from above, onto the isometric
+ * floor: the picture's top-left corner goes to tile (x, y) and `perTile` of its
+ * pixels cover one tile. With `turned`, the picture's width runs along y.
  */
-function drawWalkways(g: Graphics, floor: FloorView, accents: Readonly<Record<string, number>>): void {
+function onFloor(x: number, y: number, perTile: number, turned = false): Matrix {
+  const k = 1 / perTile
+  const at = iso(x, y)
+  return turned ? new Matrix(-32 * k, 16 * k, 32 * k, 16 * k, at.x, at.y) : new Matrix(32 * k, 16 * k, -32 * k, 16 * k, at.x, at.y)
+}
+
+/**
+ * Where the character walks, painted: the library around the palace, boarded
+ * hallways with a brass edge, a carpet down the middle of each, a mat in each
+ * room's colour at its entrance, and a plaza with a round rug and four
+ * lanterns where the hallways cross.
+ */
+function buildGround(ground: Container, floor: FloorView, art: GroundTextures, accents: Readonly<Record<string, number>>): void {
+  // The library: a backdrop that fills the stage around the floor.
+  const b = floor.bounds
+  const surround = new Sprite(art.surround)
+  surround.anchor.set(0.5)
+  surround.width = (b.maxX - b.minX) * 1.9
+  surround.height = surround.width * (art.surround.height / art.surround.width)
+  surround.position.set((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2 + 60)
+  ground.addChild(surround)
+
+  /** A repeating flat picture over a rectangle of tiles. */
+  const lay = (texture: Texture, rect: Rect, perTile: number, turned = false, tint?: number): void => {
+    const sprite = new TilingSprite({ texture, width: (turned ? rect.d : rect.w) * perTile, height: (turned ? rect.w : rect.d) * perTile })
+    sprite.setFromMatrix(onFloor(rect.x, rect.y, perTile, turned))
+    if (tint !== undefined) sprite.tint = tint
+    ground.addChild(sprite)
+  }
+  const edges = new Graphics()
   for (const hall of floor.halls) {
-    drawFloor(g, hall.x, hall.y, hall.w, hall.d, P.walkFloor)
-    g.poly(diamond(hall)).stroke({ color: P.walkEdge, width: 1.5, alpha: 0.45 })
+    lay(art.boards, hall, GROUND.boards.perTile, false, P.walkTint)
+    edges.poly(diamond(hall)).stroke({ color: P.walkEdge, width: 1.5, alpha: 0.5 })
   }
   const { runners, mats, plaza, lanterns } = floor.walk
-  const carpet = (r: Rect, colour: number): void => {
-    g.poly(diamond(r)).fill(colour).stroke({ color: P.outline, width: 1, alpha: 0.7 })
-    g.poly(diamond(inset(r, 0.18))).stroke({ color: P.gold, width: 1, alpha: 0.55 })
-  }
-  for (const mat of mats) carpet(mat, mix(P.carpet, accents[mat.roomId] ?? P.carpet, 0.45))
-  for (const runner of runners) carpet(runner, P.carpet)
-  // The plaza: a square of paler boards with a round rug of rings.
-  g.poly(diamond(plaza)).fill(P.plaza).stroke({ color: P.walkEdge, width: 2, alpha: 0.8 })
-  const centre = iso(plaza.x + plaza.w / 2, plaza.y + plaza.d / 2)
-  for (const [radius, colour, alpha] of [
-    [70, P.carpet, 1],
-    [56, P.gold, 0.5],
-    [50, P.carpet, 1],
-    [26, P.gold, 0.35]
-  ] as const) {
-    g.ellipse(centre.x, centre.y, radius, radius / 2).fill({ color: colour, alpha })
-  }
+  lay(art.boards, plaza, GROUND.boards.perTile)
+  edges.poly(diamond(plaza)).stroke({ color: P.walkEdge, width: 2, alpha: 0.85 })
+  ground.addChild(edges)
+  // The carpet's length runs along whichever side of the strip is longer.
+  for (const mat of mats) lay(art.carpet, mat, GROUND.carpet.perTile, mat.d > mat.w, mix(P.parchment, accents[mat.roomId] ?? P.parchment, 0.6))
+  for (const runner of runners) lay(art.carpet, runner, GROUND.carpet.perTile, runner.d > runner.w)
+
+  const rug = new Sprite(art.rug)
+  const half = GROUND.rug.tiles / 2
+  rug.setFromMatrix(onFloor(plaza.x + plaza.w / 2 - half, plaza.y + plaza.d / 2 - half, art.rug.width / GROUND.rug.tiles))
+  ground.addChild(rug)
+
+  const glow = new Graphics()
+  ground.addChild(glow)
   for (const [x, y] of lanterns) {
     const foot = iso(x, y)
-    const top = iso(x, y, 1.5)
-    g.ellipse(foot.x, foot.y, 34, 17).fill({ color: P.lantern, alpha: 0.1 })
-    g.ellipse(foot.x, foot.y, 16, 8).fill({ color: P.lantern, alpha: 0.14 })
-    g.moveTo(foot.x, foot.y).lineTo(top.x, top.y).stroke({ color: P.walkEdge, width: 3 })
-    g.circle(top.x, top.y, 9).fill({ color: P.lantern, alpha: 0.25 })
-    g.circle(top.x, top.y, 4.5).fill(P.lantern).stroke({ color: P.outline, width: 1 })
+    glow.ellipse(foot.x, foot.y, 46, 23).fill({ color: P.lantern, alpha: 0.1 })
+    glow.ellipse(foot.x, foot.y, 22, 11).fill({ color: P.lantern, alpha: 0.14 })
+    const lantern = new Sprite(art.lantern)
+    lantern.anchor.set(0.5, 0.93)
+    lantern.scale.set(GROUND.lantern.height / art.lantern.height)
+    lantern.position.set(foot.x, foot.y)
+    ground.addChild(lantern)
   }
 }
 
@@ -444,7 +479,8 @@ export function PalaceCanvas({
     nato: Sprite | null
     /** Nato and his shadow: one node, re-ordered among the rooms so walls in front of him cover him. */
     actor: Container | null
-    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture>; opened: Record<string, Texture> } | null
+    ground: Container
+    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture>; opened: Record<string, Texture>; ground: GroundTextures } | null
   } | null>(null)
   const camera = useRef<{ now: Camera; goal: Camera; free: boolean }>({ now: { scale: 1, x: 0, y: 0 }, goal: { scale: 1, x: 0, y: 0 }, free: false })
   const walk = useRef<{
@@ -502,12 +538,12 @@ export function PalaceCanvas({
       }
       el.appendChild(app.canvas)
       const world = new Container()
-      const halls = new Graphics()
+      const ground = new Container()
       const rooms = new Container()
       const top = new Container()
-      world.addChild(halls, rooms, top)
+      world.addChild(ground, rooms, top)
       app.stage.addChild(world)
-      stage.current = { app, world, rooms, nato: null, actor: null, textures: null }
+      stage.current = { app, world, rooms, ground, nato: null, actor: null, textures: null }
 
       camera.current.now = cameraFor(latest.current.focus)
       camera.current.goal = camera.current.now
@@ -519,6 +555,13 @@ export function PalaceCanvas({
         helpers: Object.fromEntries(helperTextures),
         lobby: await loadTexture(LOBBY_SPRITE.url),
         rooms: Object.fromEntries(await Promise.all(Object.entries(ROOM_CUT).map(async ([id, cut]) => [id, await loadTexture(cut.url)] as const))),
+        ground: {
+          boards: await loadTexture(GROUND.boards.url),
+          carpet: await loadTexture(GROUND.carpet.url),
+          rug: await loadTexture(GROUND.rug.url),
+          lantern: await loadTexture(GROUND.lantern.url),
+          surround: await loadTexture(GROUND.surround.url)
+        },
         // Only the front-most room stands in front of the lobby.
         opened: Object.fromEntries(
           await Promise.all(
@@ -669,9 +712,6 @@ export function PalaceCanvas({
   useEffect(() => {
     const s = stage.current
     if (!ready || !s || !s.textures) return
-    const halls = s.world.children[0] as Graphics
-    halls.clear()
-    drawWalkways(halls, floor, Object.fromEntries(floor.rooms.map((r) => [r.id, accentOf(r)])))
     // Nato lives among the room layers; take him out before they are rebuilt.
     if (s.actor?.parent) s.actor.parent.removeChild(s.actor)
     for (const old of s.rooms.removeChildren()) old.destroy({ children: true })
@@ -752,6 +792,15 @@ export function PalaceCanvas({
       }
     }
   }, [ready, floor, hover, focus, agents, highlights, arranging])
+
+  // The ground between the rooms only changes with the floor's layout, not with every redraw.
+  const layoutKey = `${floor.tiles}|${floor.rooms.map((r) => r.id).join(',')}`
+  useEffect(() => {
+    const s = stage.current
+    if (!ready || !s || !s.textures) return
+    for (const old of s.ground.removeChildren()) old.destroy({ children: true })
+    buildGround(s.ground, floor, s.textures.ground, Object.fromEntries(floor.rooms.map((r) => [r.id, accentOf(r)])))
+  }, [ready, layoutKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A mostly dark room's light flickers on now and then (never with reduced motion).
   useEffect(() => {

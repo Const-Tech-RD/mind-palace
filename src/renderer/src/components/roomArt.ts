@@ -16,6 +16,11 @@ import natoWalk2 from '../assets/characters/nato_walk_2.png'
 import natoWalk3 from '../assets/characters/nato_walk_3.png'
 import natoWalk4 from '../assets/characters/nato_walk_4.png'
 import lobby from '../assets/items/lobby.png'
+import groundBoards from '../assets/ground/boards.webp'
+import groundCarpet from '../assets/ground/carpet.webp'
+import groundLantern from '../assets/ground/lantern.png'
+import groundRug from '../assets/ground/rug.webp'
+import groundSurround from '../assets/ground/surround.jpg'
 
 /** The whole painting of each room, shown as the header picture beside a room. */
 export const ROOM_IMAGE: Record<string, string> = { coding, music, art, mailroom }
@@ -60,3 +65,22 @@ export const HELPER_SPRITE: Record<string, string> = { coding: helperCoding, mus
 export const HELPER_FIGURE_HEIGHT = 320
 /** The centrepiece of the lobby, where the hallways cross. */
 export const LOBBY_SPRITE = { url: lobby, width: 332, height: 366 }
+
+/**
+ * The spaces between the rooms, prepared by `scripts/cut_ground.py`. The
+ * boards, the carpet and the rug are flat pictures seen from straight above;
+ * the canvas lays them on the isometric floor. `perTile` is how many of a
+ * picture's pixels cover one floor tile.
+ */
+export const GROUND = {
+  /** Floor boards; the picture repeats without a seam. */
+  boards: { url: groundBoards, perTile: 128 },
+  /** A carpet two tiles wide that repeats along its length. */
+  carpet: { url: groundCarpet, perTile: 64 },
+  /** The round rug in the lobby, and how many tiles across it is laid. */
+  rug: { url: groundRug, tiles: 4.6 },
+  /** A lantern on a post, drawn upright; its height in logical pixels. */
+  lantern: { url: groundLantern, height: 62 },
+  /** The library around the palace. */
+  surround: { url: groundSurround }
+}

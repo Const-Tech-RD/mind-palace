@@ -35,10 +35,8 @@ const PALETTE_TOKENS = {
   dark: '--mp-dark',
   dust: '--mp-dust',
   cobweb: '--mp-cobweb',
-  walkFloor: '--mp-walk-floor',
+  walkTint: '--mp-walk-tint',
   walkEdge: '--mp-walk-edge',
-  carpet: '--mp-walk-carpet',
-  plaza: '--mp-walk-plaza',
   lantern: '--mp-walk-lantern'
 } as const
 
