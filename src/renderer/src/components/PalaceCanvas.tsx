@@ -5,22 +5,20 @@ import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } 
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
 import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
-import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
+import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
+import { boxOfRoom, fitCamera } from '@shared/camera'
+import { faceShades, shade } from '@shared/color'
 import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
 
 /**
- * The connected palace, drawn as one PixiJS scene from the floor model. A room
- * that has a painting is shown as that painting, cut out and set on the floor;
- * a room without one is drawn as placeholder blocks sized by footprint and height.
+ * The connected palace, drawn as one PixiJS scene from the floor model. Every
+ * item is a placeholder block sized by its footprint and height until its
+ * sprite exists; the room paintings are only the header picture beside a room.
  * This component only draws and reports clicks; everything it shows comes in
  * through props.
  */
 
 const hex = (colour: string): number => parseInt(colour.replace('#', ''), 16)
-const shade = (colour: number, factor: number): number => {
-  const channel = (shift: number): number => Math.max(0, Math.min(255, Math.round(((colour >> shift) & 0xff) * factor)))
-  return (channel(16) << 16) | (channel(8) << 8) | channel(0)
-}
 const mix = (a: number, b: number, t: number): number => {
   const channel = (shift: number): number => Math.round(((a >> shift) & 0xff) * (1 - t) + ((b >> shift) & 0xff) * t)
   return (channel(16) << 16) | (channel(8) << 8) | channel(0)
@@ -50,9 +48,10 @@ const pts = (corners: Array<{ x: number; y: number }>): number[] => corners.flat
 function drawBox(g: Graphics, x: number, y: number, w: number, d: number, z: number, h: number, colour: number, stroke?: number, strokeWidth = 1): void {
   const top = z + h
   stroke ??= P.outline
-  g.poly(pts([iso(x, y + d, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x, y + d, z)])).fill(shade(colour, 0.78)).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
-  g.poly(pts([iso(x + w, y, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x + w, y, z)])).fill(shade(colour, 0.6)).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
-  g.poly(pts([iso(x, y, top), iso(x + w, y, top), iso(x + w, y + d, top), iso(x, y + d, top)])).fill(colour).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
+  const [topFace, leftFace, rightFace] = faceShades(colour)
+  g.poly(pts([iso(x, y + d, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x, y + d, z)])).fill(leftFace).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
+  g.poly(pts([iso(x + w, y, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x + w, y, z)])).fill(rightFace).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
+  g.poly(pts([iso(x, y, top), iso(x + w, y, top), iso(x + w, y + d, top), iso(x, y + d, top)])).fill(topFace).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
 }
 
 function drawFloor(g: Graphics, x: number, y: number, w: number, d: number, colour: number): void {
@@ -87,44 +86,15 @@ function blockColour(block: FloorBlock, accent: number): number {
   return block.item.startsWith('base_') || block.item === 'trophy_shelf' ? P.wood : mix(P.wood, accent, 0.55)
 }
 
-/** How much of a painted room's colour shows at each shell tier: a bare room is dim and almost grey. */
-function shellFilter(shell: ShellTier): ColorMatrixFilter | null {
-  if (shell === 'finished') return null
-  const filter = new ColorMatrixFilter()
-  filter.saturate(shell === 'bare' ? -0.85 : -0.4, false)
-  filter.brightness(shell === 'bare' ? 0.6 : 0.85, true)
-  return filter
-}
-
-function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean, painting: Texture | undefined): Container {
+function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean): Container {
   const [ox, oy] = room.origin
   const look = shellLook(room.shell)
   const accent = accentOf(room)
-  const cut = ROOM_CUT[room.id]
-  if (painting && cut) {
-    const origin = iso(ox, oy)
-    const picture = new Sprite(painting)
-    picture.scale.set(1 / cut.scale)
-    picture.position.set(origin.x - cut.anchorX / cut.scale, origin.y - cut.anchorY / cut.scale)
-    const filter = shellFilter(room.shell)
-    if (filter) picture.filters = [filter]
-    layer.addChild(picture)
-    if (hovered) {
-      const outline = new Graphics()
-      outline
-        .poly(pts([iso(ox, oy), iso(ox + ROOM_TILES, oy), iso(ox + ROOM_TILES, oy + ROOM_TILES), iso(ox, oy + ROOM_TILES)]))
-        .stroke({ color: accent, width: 3, alpha: 0.95 })
-      layer.addChild(outline)
-    }
-    const cast = new Container()
-    layer.addChild(cast)
-    return cast
-  }
   const back = new Graphics()
   drawFloor(back, ox, oy, ROOM_TILES, ROOM_TILES, mix(look.floor, accent, look.tint))
   for (const wall of room.walls) if (!wall.front) drawWall(back, wall, wall.height === WALL_FULL ? mix(look.wall, accent, look.tint * 0.7) : look.wall)
   // The room's light: one soft glow in its accent.
-  const glow = iso(ox + 4, oy + 3)
+  const glow = iso(room.lightAt[0], room.lightAt[1])
   for (const [radius, alpha] of [
     [150, 0.05],
     [100, 0.06],
@@ -171,7 +141,8 @@ function wayOut(origin: readonly [number, number]): Array<[number, number]> {
   return [[ox + 4, oy === 0 ? oy + 7.6 : oy + 0.4], [ox + 4, LOBBY_AT]]
 }
 function standIn(roomId: string | undefined): readonly [number, number] {
-  return (roomId && ROOM_CUT[roomId]?.nato) || STAND
+  void roomId
+  return STAND
 }
 function route(from: readonly [number, number] | null, to: readonly [number, number], stand: readonly [number, number]): Array<[number, number]> {
   const end: [number, number] = [to[0] + stand[0], to[1] + stand[1]]
@@ -226,7 +197,7 @@ export function PalaceCanvas({
     world: Container
     rooms: Container
     nato: Sprite | null
-    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture> } | null
+    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture } | null
   } | null>(null)
   const camera = useRef<{ now: Camera; goal: Camera; free: boolean }>({ now: { scale: 1, x: 0, y: 0 }, goal: { scale: 1, x: 0, y: 0 }, free: false })
   const walk = useRef<{
@@ -250,21 +221,7 @@ export function PalaceCanvas({
     const width = el?.clientWidth ?? 800
     const height = el?.clientHeight ?? 500
     const room = roomId ? latest.current.floor.rooms.find((r) => r.id === roomId) : undefined
-    let box = latest.current.floor.bounds
-    if (room) {
-      const [ox, oy] = room.origin
-      const tall = ROOM_CUT[room.id] ? WALL_FULL : room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1.6
-      const corners = [iso(ox, oy, tall), iso(ox + ROOM_TILES, oy, tall), iso(ox, oy + ROOM_TILES), iso(ox + ROOM_TILES, oy + ROOM_TILES)]
-      box = {
-        minX: Math.min(...corners.map((c) => c.x)),
-        maxX: Math.max(...corners.map((c) => c.x)),
-        minY: Math.min(...corners.map((c) => c.y)),
-        maxY: Math.max(...corners.map((c) => c.y))
-      }
-    }
-    const margin = room ? 0.86 : 0.94
-    const scale = Math.min((width * margin) / (box.maxX - box.minX), (height * margin) / (box.maxY - box.minY))
-    return { scale, x: width / 2 - ((box.minX + box.maxX) / 2) * scale, y: height / 2 - ((box.minY + box.maxY) / 2) * scale }
+    return room ? fitCamera(boxOfRoom(room), { width, height }, 32) : fitCamera(latest.current.floor.bounds, { width, height }, 24)
   }
 
   // Set the scene up once.
@@ -292,14 +249,12 @@ export function PalaceCanvas({
       camera.current.now = cameraFor(latest.current.focus)
       camera.current.goal = camera.current.now
 
-      const paintings = await Promise.all(Object.entries(ROOM_CUT).map(async ([id, cut]) => [id, await loadTexture(cut.url)] as const))
       const helperTextures = await Promise.all(Object.entries(HELPER_SPRITE).map(async ([id, url]) => [id, await loadTexture(url)] as const))
       const textures = {
         walk: await Promise.all(NATO_FRAMES.walk.map(loadTexture)),
         sit: await loadTexture(NATO_FRAMES.sit),
         helpers: Object.fromEntries(helperTextures),
-        lobby: await loadTexture(LOBBY_SPRITE.url),
-        rooms: Object.fromEntries(paintings)
+        lobby: await loadTexture(LOBBY_SPRITE.url)
       }
       const standing = textures.walk[3]!
       if (cancelled) return
@@ -392,7 +347,7 @@ export function PalaceCanvas({
           last = key
           latest.current.onLabels(
             latest.current.floor.rooms.map((room) => {
-              const tall = ROOM_CUT[room.id] ? WALL_FULL : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
+              const tall = room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
               const at = iso(room.origin[0], room.origin[1], tall - 0.6)
               return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
             })
@@ -435,10 +390,9 @@ export function PalaceCanvas({
       // Zoomed into a room, the others step back so their walls do not crowd the view.
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
-      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id, s.textures.rooms[room.id])
+      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id)
       const agent = agents[room.id]
-      const painted = ROOM_CUT[room.id]
-      const spotTile = painted ? [room.origin[0] + painted.helper[0], room.origin[1] + painted.helper[1]] : [room.helperSpots[0]![0] + 0.5, room.helperSpots[0]![1] + 0.5]
+      const spotTile = [room.helperSpots[0]![0] + 0.5, room.helperSpots[0]![1] + 0.5]
       const spot = iso(spotTile[0]!, spotTile[1]!)
       const helper = new Sprite(s.textures.helpers[room.id] ?? s.textures.helpers['coding']!) as HelperSprite
       helper.anchor.set(0.5, 0.98)

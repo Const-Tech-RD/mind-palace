@@ -157,6 +157,11 @@ export function PalaceView() {
   const showProjects = useStore((s) => s.showProjects)
   const showReminders = useStore((s) => s.showReminders)
   const [labels, setLabels] = useState<CanvasLabel[]>([])
+  const refreshPalace = useStore((s) => s.refreshPalace)
+  // The focused room's back walls rise and show what hangs on them: ask for the floor with that focus.
+  useEffect(() => {
+    void refreshPalace()
+  }, [roomId, refreshPalace])
 
   const room = palace?.rooms.find((r) => r.id === roomId) ?? null
   const roomIds = useMemo(() => palace?.rooms.map((r) => r.id) ?? [], [palace])
@@ -265,6 +270,7 @@ export function PalaceView() {
                     const count = projects.filter((p) => p.roomId === r.id && p.state === 'active').length
                     const isNew = !seenRooms.includes(r.id) && (r.newItems.length > 0 || r.newShell !== null)
                     const today = activeToday(r.state)
+                    const onWalls = palace.floor.rooms.find((x) => x.id === r.id)?.hiddenWallItems ?? 0
                     return (
                       <button
                         key={r.id}
@@ -288,6 +294,11 @@ export function PalaceView() {
                         >
                           <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: r.accent }} />
                           <span className="font-semibold">{r.name}</span>
+                          {onWalls > 0 && (
+                            <span className="text-[10px] text-muted" title="On a low wall: shown when you open the room">
+                              +{onWalls} on the walls
+                            </span>
+                          )}
                           {r.state.streak.current > 0 && <span className="text-muted">{r.state.streak.current}d</span>}
                           {count > 0 && <span className="text-muted">· {count} project{count === 1 ? '' : 's'}</span>}
                           {isNew && <span className="palace-new rounded-full bg-gold px-1.5 text-[10px] font-semibold text-ink">New</span>}
@@ -395,7 +406,7 @@ export function PalaceView() {
                       )
                     })}
                   </ul>
-                  <p className="mt-3 text-xs text-muted">The room is shown as its painting. It starts grey and gains its colour as the streak grows.</p>
+                  <p className="mt-3 text-xs text-muted">Each piece is a placeholder block until its drawing exists. The walls and floor warm up as the streak grows.</p>
                 </section>
               ) : (
                 <p key="where" className="mt-4 text-center text-sm text-muted" role="status">

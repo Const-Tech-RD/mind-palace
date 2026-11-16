@@ -335,7 +335,7 @@ export const useStore = create<State>((set, get) => ({
 
   async refreshPalace() {
     try {
-      set({ palace: await window.mindPalace.invoke('palace:view'), seenRooms: [] })
+      set({ palace: await window.mindPalace.invoke('palace:view', { focus: get().palaceRoomId }), seenRooms: [] })
     } catch (error) {
       set({ appError: describe(error) })
     }

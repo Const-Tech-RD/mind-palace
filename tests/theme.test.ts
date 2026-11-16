@@ -9,6 +9,11 @@ describe('parseCssColor', () => {
     expect(parseCssColor(' #e8b84a ')).toBe(0xe8b84a)
   })
 
+  it('reads the short form a CSS minifier writes (#000 for #000000)', () => {
+    expect(parseCssColor('#000')).toBe(0x000000)
+    expect(parseCssColor('#fA0')).toBe(0xffaa00)
+  })
+
   it('fails loudly on a token that is not defined', () => {
     expect(() => parseCssColor('')).toThrow(/missing token/)
     expect(() => parseCssColor('  ')).toThrow(/missing token/)
