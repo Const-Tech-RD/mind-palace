@@ -628,3 +628,37 @@ describe('decay', () => {
     expect(state.decay).toEqual({ level: 1, weekdaysQuiet: 7, projectId: 'p' })
   })
 })
+
+describe('kept progress (earned stays earned)', () => {
+  const today = '2026-12-02'
+
+  it('kept best streak keeps signature items after the chats move out', () => {
+    const state = computeRoomState('coding', [], catalog, today, { bestStreak: 8, goalCount: 0 })
+    expect(placed(state)).toEqual(expect.arrayContaining(['coding_monitor@desk_center', 'coding_whiteboard@wall_right_b']))
+    expect(state.streak.current).toBe(0)
+    expect(state.streak.best).toBe(8)
+  })
+
+  it('kept goal count keeps goal items and trophies', () => {
+    const state = computeRoomState('coding', [], catalog, today, { bestStreak: 0, goalCount: 3 })
+    expect(placed(state)).toEqual(
+      expect.arrayContaining(['trophy_shelf@wall_left_b', 'base_poster@wall_left_a', 'base_floor_lamp@lamp'])
+    )
+    expect(state.goals.trophies).toBe(3)
+    expect(state.goals.count).toBe(0)
+  })
+
+  it('derived progress above the kept marks wins', () => {
+    const state = computeRoomState('coding', chatsOn('coding', run('2026-11-30', 5)), catalog, '2026-12-04', {
+      bestStreak: 2,
+      goalCount: 0
+    })
+    expect(state.streak.best).toBe(5)
+    expect(state.shell).toBe('painted')
+  })
+
+  it('nextUnlock is measured from the kept marks', () => {
+    const state = computeRoomState('coding', [], catalog, today, { bestStreak: 8, goalCount: 0 })
+    expect(state.nextUnlock.streak?.at).toBe(13)
+  })
+})

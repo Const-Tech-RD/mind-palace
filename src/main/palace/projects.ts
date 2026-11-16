@@ -12,6 +12,10 @@ export interface ProjectServiceDeps {
   afterAction?: (projectId: string, action: ProjectAction) => void
   /** Called when a linked chat gets a new message. */
   afterActivity?: (projectId: string) => void
+  /** Runs before a chat changes room, so the room it leaves keeps what it earned. */
+  beforeMove?: () => void
+  /** After a goal is reopened in a room (its kept goal mark goes back down). */
+  afterReopen?: (roomId: string) => void
   now?: () => Date
 }
 
@@ -90,6 +94,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
           repo.removeCompletions(projectId)
         }
       })
+      if (change.completion === 'remove') deps.afterReopen?.(project.roomId)
       deps.afterAction?.(projectId, action)
       return repo.project(projectId)!
     },
@@ -98,6 +103,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
     moveChat(chatId: string, roomId: string): void {
       if (!deps.roomIds.includes(roomId)) throw new Error(`There is no room "${roomId}".`)
       if (!repo.chat(chatId)) throw new Error('That chat no longer exists.')
+      deps.beforeMove?.()
       repo.setRoom(chatId, roomId, 'user')
       deps.onChanged(chatId)
     },

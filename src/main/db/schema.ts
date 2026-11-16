@@ -7,7 +7,8 @@ import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlit
  * - Timestamps are UTC ISO-8601 strings (`2026-11-15T14:03:00.000Z`).
  * - `local_day` is a `YYYY-MM-DD` calendar day in the settings timezone.
  * - Rooms are not a table: `room_id` refers to an id in catalog/rooms/*.json.
- * - Unlocks are never stored; they are derived by src/shared/engine.
+ * - Unlocks are derived by src/shared/engine; `room_progress` only keeps each
+ *   room's high-water marks so an unlock is never lost when chats move.
  */
 
 export const ROOM_SOURCES = ['model', 'user'] as const
@@ -156,3 +157,14 @@ export const placements = sqliteTable(
   (t) => [primaryKey({ columns: [t.roomId, t.instance] })]
 )
 
+
+/**
+ * Earned stays earned: the most a room ever reached on each track. The engine
+ * judges unlocks against the higher of these and what the room's chats give now.
+ */
+export const roomProgress = sqliteTable('room_progress', {
+  roomId: text('room_id').primaryKey(),
+  bestStreak: integer('best_streak').notNull().default(0),
+  goalCount: integer('goal_count').notNull().default(0),
+  updatedAt: text('updated_at').notNull().default(utcNow)
+})

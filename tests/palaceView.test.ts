@@ -201,3 +201,17 @@ describe('decayText', () => {
     expect(decayText(d, title)).toBe(expected)
   })
 })
+
+describe('buildPalace with kept progress', () => {
+  it('shows what a room earned even after its chats left', () => {
+    const view = buildPalace({
+      catalog,
+      rows: { chats: [], messages: [], goalCompletions: [] },
+      timeZone: TZ,
+      today: TODAY,
+      seen: {},
+      kept: { coding: { bestStreak: 8, goalCount: 0 } }
+    })
+    expect(roomOf(view, 'coding').placed.map((p) => p.item)).toContain('coding_whiteboard')
+  })
+})

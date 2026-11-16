@@ -13,6 +13,7 @@ import { createClassifier } from './palace/classifier'
 import { createProjectService } from './palace/projects'
 import { createPalaceRepo } from './palace/repo'
 import { createPalaceView } from './palace/view'
+import { createProgressKeeper } from './palace/progress'
 import { openStore, type Store } from './db/client'
 import { handle } from './ipc'
 import { applyStartAtLogin, getStartAtLogin } from './loginItem'
@@ -96,6 +97,9 @@ function start(): void {
   const stamped = chatRepo.fillMissingLocalDays()
   if (stamped > 0) console.log(`[mind-palace] stored the local day on ${stamped} older messages`)
   const palaceRepo = createPalaceRepo(db.db)
+  // Earned stays earned: store each room's marks before anything can move a chat.
+  const keeper = createProgressKeeper({ store: db, catalog: () => catalog, timeZone })
+  keeper.record()
   const onChanged = (chatId: string): void => emit({ type: 'updated', chatId })
 
   const emitApp = (event: AppEvent): void => getMainWindow()?.webContents.send(APP_EVENT_CHANNEL, event)
@@ -117,7 +121,9 @@ function start(): void {
     timeZone,
     onChanged,
     afterAction: (projectId, action) => reminders?.afterProjectAction(projectId, action),
-    afterActivity: (projectId) => reminders?.afterProjectActivity(projectId)
+    afterActivity: (projectId) => reminders?.afterProjectActivity(projectId),
+    beforeMove: () => keeper.record(),
+    afterReopen: (roomId) => keeper.resetGoals(roomId)
   })
   const reminderService = createReminderService({
     repo: createReminderRepo(db.db),
@@ -156,6 +162,7 @@ function start(): void {
     messagesOf: (chatId) => chatRepo.messages(chatId),
     askModel: askSmallModel,
     onChanged,
+    beforeMove: () => keeper.record(),
     log: (message) => console.warn(`[mind-palace] ${message}`)
   })
 
@@ -203,7 +210,7 @@ function start(): void {
     return { dismissed: true }
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
-  const palace = createPalaceView({ store: db, catalog, timeZone })
+  const palace = createPalaceView({ store: db, catalog, keeper, timeZone })
   handle('palace:view', (request) => palace.view(request?.focus ?? null))
   handle('palace:place', (change) => palace.place(change))
   handle('palace:reset', ({ roomId, instance }) => palace.reset(roomId, instance))

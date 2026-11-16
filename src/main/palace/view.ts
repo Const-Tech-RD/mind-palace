@@ -2,6 +2,7 @@ import { localDayOf, type HistoryRows } from '@shared/engine'
 import type { Catalog } from '@shared/catalog'
 import { buildPalace, seenKeys, type PalaceView } from '@shared/palace'
 import type { Store } from '../db/client'
+import type { ProgressKeeper } from './progress'
 import { and, eq } from 'drizzle-orm'
 import { checkPlacement, nextPlacement, type Placement, type PlacementChange } from '@shared/placements'
 import { chats, goalCompletions, messages, placements, projects } from '../db/schema'
@@ -19,8 +20,8 @@ function readSeen(store: Store, roomId: string): string[] | null {
   }
 }
 
-/** The rows the engine needs, straight from the database. Unlocks are never stored. */
-function historyRows(store: Store, timeZone: string): HistoryRows {
+/** The rows the engine needs, straight from the database. */
+export function historyRows(store: Store, timeZone: string): HistoryRows {
   return {
     chats: store.db.select({ id: chats.id, roomId: chats.roomId }).from(chats).all(),
     messages: store.db
@@ -39,13 +40,15 @@ function historyRows(store: Store, timeZone: string): HistoryRows {
   }
 }
 
-export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZone: () => string; now?: () => Date }) {
-  const { store, catalog } = deps
+export function createPalaceView(deps: { store: Store; catalog: Catalog; keeper: ProgressKeeper; timeZone: () => string; now?: () => Date }) {
+  const { store, catalog, keeper } = deps
   const now = deps.now ?? (() => new Date())
 
   function view(focus: string | null = null): PalaceView {
     const timeZone = deps.timeZone()
+    keeper.record()
     return buildPalace({
+      kept: keeper.kept(),
       placements: placementRows(),
       focus,
       catalog,

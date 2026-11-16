@@ -32,6 +32,17 @@ export type RoomEvent =
       lastActivityDay: LocalDay | null
     }
 
+/**
+ * What a room has already earned, kept in the database (\`room_progress\`) so
+ * that moving chats or projects out of a room never takes an unlock away.
+ */
+export interface KeptProgress {
+  /** The longest run the room ever had. */
+  bestStreak: number
+  /** The most counted goals the room ever had. */
+  goalCount: number
+}
+
 export type Track = 'streak' | 'goals'
 
 /** Where a placed item came from. */

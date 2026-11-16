@@ -23,6 +23,8 @@ export interface ClassifierDeps {
   askModel: (prompt: string, system: string, schema: Record<string, unknown>) => Promise<JsonAnswer>
   /** Tells the renderer a chat's room or suggestion changed. */
   onChanged: (chatId: string) => void
+  /** Runs before a chat changes room, so the room it leaves keeps what it earned. */
+  beforeMove?: () => void
   now?: () => Date
   log?: (message: string) => void
 }
@@ -96,8 +98,9 @@ export function createClassifier(deps: ClassifierDeps) {
       const { result } = outcome
       const at = now().toISOString()
 
+      const newRoom = roomChange(chat, result)
+      if (newRoom !== null) deps.beforeMove?.()
       repo.transaction(() => {
-        const newRoom = roomChange(chat, result)
         if (newRoom !== null) repo.setRoom(chatId, newRoom, 'model')
         repo.markClassified(chatId, at)
 

@@ -11,6 +11,7 @@ import {
   buildRoomEvents,
   computeRoomState,
   type HistoryRows,
+  type KeptProgress,
   type LocalDay,
   type NextUnlock,
   type PlacedItem,
@@ -76,10 +77,12 @@ export function buildPalace(input: {
   placements?: readonly Placement[]
   /** The room zoomed into, whose back walls rise and show what hangs on them. */
   focus?: string | null
+  /** What each room already earned (`room_progress`); unlocks never drop below it. */
+  kept?: Readonly<Record<string, KeptProgress>>
 }): PalaceView {
   const events = buildRoomEvents(input.rows, input.timeZone)
   const rooms = Object.values(input.catalog.rooms).map((room) => {
-    const state = computeRoomState(room.id, events, input.catalog, input.today)
+    const state = computeRoomState(room.id, events, input.catalog, input.today, input.kept?.[room.id])
     const fresh = newSince(input.seen[room.id] ?? null, state)
     const resolved = resolvePlacements(state, input.placements ?? [], input.catalog)
     const earned = [...resolved.placed.map((p) => p.instance), ...resolved.inventory.map((i) => i.instance)]
