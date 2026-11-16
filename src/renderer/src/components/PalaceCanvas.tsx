@@ -4,7 +4,7 @@ import 'pixi.js/unsafe-eval'
 import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
-import { iso, LOBBY as LOBBY_AT, PAINTED_WALL, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
+import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
@@ -96,6 +96,8 @@ function blockColour(block: FloorBlock, accent: number): number {
 function shellFilter(shell: ShellTier): ColorMatrixFilter | null {
   if (shell === 'finished') return null
   const filter = new ColorMatrixFilter()
+  // Filters draw at resolution 1 by default, which pixelates the painting on a dense display.
+  filter.resolution = 'inherit'
   filter.saturate(shell === 'bare' ? -0.85 : -0.4, false)
   filter.brightness(shell === 'bare' ? 0.6 : 0.85, true)
   return filter
@@ -116,9 +118,8 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
     layer.addChild(picture)
     if (hovered) {
       const outline = new Graphics()
-      outline
-        .poly(pts([iso(ox, oy), iso(ox + ROOM_TILES, oy), iso(ox + ROOM_TILES, oy + ROOM_TILES), iso(ox, oy + ROOM_TILES)]))
-        .stroke({ color: accent, width: 3, alpha: 0.95 })
+      // The painted floor's own corners, which are not exactly the grid's.
+      outline.poly(cut.floor.flatMap(([x, y]) => [origin.x + x, origin.y + y])).stroke({ color: accent, width: 3, alpha: 0.95 })
       layer.addChild(outline)
     }
     const cast = new Container()
@@ -179,7 +180,7 @@ function drawDecay(layer: Container, room: FloorRoom, painted: boolean): void {
     g.ellipse(at.x, at.y, 2 + random() * 5, 1 + random() * 2.5).fill({ color: P.dust, alpha: 0.22 + random() * 0.18 })
   }
   if (room.decay >= 2) {
-    const tall = painted ? PAINTED_WALL - 0.3 : room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1
+    const tall = painted ? -(ROOM_CUT[room.id]?.top ?? 0) / 32 - 0.6 : room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1
     const corner = iso(ox, oy, tall)
     const down = iso(ox, oy, tall - 1.1)
     const right = iso(ox + 1.3, oy, tall)
@@ -230,6 +231,7 @@ function decayFilter(level: DecayLevel, light?: number): ColorMatrixFilter | nul
   const dark = light ?? darknessOf(level)
   if (level === 0 && dark === 0) return null
   const filter = new ColorMatrixFilter()
+  filter.resolution = 'inherit'
   filter.saturate(level >= 3 ? -0.7 : level === 2 ? -0.55 : level === 1 ? -0.35 : 0, false)
   if (dark > 0) filter.brightness(1 - dark, true)
   return filter
@@ -240,7 +242,8 @@ async function loadTexture(url: string): Promise<Texture> {
   const image = new Image()
   image.src = url
   await image.decode()
-  return Texture.from(image)
+  // Mipmaps keep a large painting clean when it is drawn small on the map.
+  return Texture.from({ resource: image, autoGenerateMipmaps: true })
 }
 
 /** Where Nato stands in a room, and the way out of it towards the lobby, in room tiles. */
@@ -263,7 +266,7 @@ function route(from: readonly [number, number] | null, to: readonly [number, num
 }
 
 /** Where the lobby's centrepiece stands (towards the back, clear of the front room's walls) and how wide it is drawn. */
-const LOBBY_SPOT = 8.8
+const LOBBY_SPOT = 9.2
 const LOBBY_WIDTH = 104
 const WALK_SPEED = 7 // tiles per second
 const STROLL_SPEED = 1.6
@@ -362,7 +365,14 @@ export function PalaceCanvas({
     const width = el?.clientWidth ?? 800
     const height = el?.clientHeight ?? 500
     const room = roomId ? latest.current.floor.rooms.find((r) => r.id === roomId) : undefined
-    return room ? fitCamera(boxOfRoom(room, isPainted(room.id) ? PAINTED_WALL : undefined), { width, height }, 32) : fitCamera(latest.current.floor.bounds, { width, height }, 24)
+    if (!room) return fitCamera(latest.current.floor.bounds, { width, height }, 24)
+    const cut = isPainted(room.id) ? ROOM_CUT[room.id] : undefined
+    if (!cut) return fitCamera(boxOfRoom(room), { width, height }, 32)
+    // A painted room is framed by its cut-out: the walls' top and the floor's own corners.
+    const origin = iso(room.origin[0], room.origin[1])
+    const xs = cut.floor.map(([x]) => origin.x + x)
+    const ys = cut.floor.map(([, y]) => origin.y + y)
+    return fitCamera({ minX: Math.min(...xs), maxX: Math.max(...xs), minY: origin.y + cut.top, maxY: Math.max(...ys) }, { width, height }, 28)
   }
 
   // Set the scene up once.
@@ -489,7 +499,8 @@ export function PalaceCanvas({
           last = key
           latest.current.onLabels(
             latest.current.floor.rooms.map((room) => {
-              const tall = isPainted(room.id) ? PAINTED_WALL : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
+              const cut = isPainted(room.id) ? ROOM_CUT[room.id] : undefined
+              const tall = cut ? -cut.top / 32 : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
               const at = iso(room.origin[0], room.origin[1], tall - 0.6)
               return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
             })

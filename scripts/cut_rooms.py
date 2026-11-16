@@ -1,23 +1,29 @@
 """
-Cuts each room out of its painting and squares it to the palace grid.
+Cuts each room out of its painting and sizes it for the palace floor.
 
 A painting shows the room as a hexagonal cutaway. The six corners of that
 hexagon are measured by hand below (in a 1376 x 768 view of the painting).
-The three floor corners (left, right, front) are mapped onto the 8 x 8 room
-diamond of the asset spec (64 x 32 px tiles), so the cut-out can be placed on
-the palace floor with its back corner at the room's origin.
 
-Usage: python tools/cut_rooms.py <paintings dir> <output dir>
-Writes <room>.webp at 2x the logical size and cut.json with, per room, the
-image size and where the room's back floor corner is inside it (2x pixels).
+The cut-out is only scaled, never squashed or skewed: the painting keeps its
+own proportions. It is scaled so that the room's floor is as wide as the
+8 x 8 room diamond of the asset spec (512 logical px), and placed so that the
+middle of the floor's left and right corners sits where the diamond's does.
+The painted floor is a little deeper than the grid's 2:1 diamond; that is the
+painter's angle and is left alone.
+
+Usage: python scripts/cut_rooms.py <paintings dir> <output dir>
+Writes <room>.webp at EXPORT times the logical size and cut.json with, per
+room: the image size, the pixel that is the room's back corner on the grid,
+the export scale, the four floor corners and the top of the walls (logical px
+from that back corner).
 """
 import json, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-VIEW = 1376  # the measurements below were taken on a view this wide
-EXPORT = 2   # asset spec: export at 2x the logical size
-HALF_W, HALF_H = 256, 128  # an 8 x 8 room diamond is 512 x 256 logical px
+VIEW = 1376   # the measurements below were taken on a view this wide
+EXPORT = 3    # pixels per logical pixel: close to the paintings' own resolution
+ROOM_W, HALF_H = 512, 128  # an 8 x 8 room diamond is 512 x 256 logical px
 
 # outline: clockwise from the top corner. floor: left, right, front corners.
 ROOMS = {
@@ -27,33 +33,44 @@ ROOMS = {
     'art': ('room_art.jpeg', [(690, 8), (1104, 233), (1104, 537), (692, 767), (270, 547), (270, 236)], [(272, 545), (1102, 535), (692, 765)]),
 }
 
+def placement(floor):
+    """View px -> logical px: p -> (p - mid) * s + (0, HALF_H), with one scale for both axes."""
+    left, right, _ = np.array(floor, dtype=float)
+    return ROOM_W / (right[0] - left[0]), (left + right) / 2
+
+def to_logical(point, floor):
+    s, mid = placement(floor)
+    return (np.array(point, dtype=float) - mid) * s + np.array([0, HALF_H])
+
 def main(src_dir, out_dir):
     meta = {}
     for room, (name, outline, floor) in ROOMS.items():
         image = Image.open(f'{src_dir}/{name}').convert('RGBA')
         k = image.width / VIEW
-        outline = [(x * k, y * k) for x, y in outline]
-        floor = np.array(floor, dtype=float) * k
         mask = Image.new('L', image.size, 0)
-        ImageDraw.Draw(mask).polygon(outline, fill=255)
-        image.putalpha(mask.filter(ImageFilter.GaussianBlur(1.2)))
+        ImageDraw.Draw(mask).polygon([(x * k, y * k) for x, y in outline], fill=255)
+        image.putalpha(mask.filter(ImageFilter.GaussianBlur(1.5)))
 
-        # Affine map from painting pixels to room pixels (back corner at 0, 0).
-        target = np.array([(-HALF_W, HALF_H), (HALF_W, HALF_H), (0, 2 * HALF_H)], dtype=float) * EXPORT
-        A = np.linalg.solve(np.c_[floor, np.ones(3)], target).T  # 2 x 3
-        corners = np.c_[np.array(outline), np.ones(len(outline))] @ A.T
-        min_x, min_y = np.floor(corners.min(axis=0)) - 2
-        max_x, max_y = np.ceil(corners.max(axis=0)) + 2
-        size = (int(max_x - min_x), int(max_y - min_y))
-        # PIL wants the inverse: output pixel -> painting pixel.
-        full = np.vstack([A, [0, 0, 1]])
-        full[0, 2] -= min_x
-        full[1, 2] -= min_y
-        inverse = np.linalg.inv(full)
-        cut = image.transform(size, Image.AFFINE, tuple(inverse[:2].flatten()), resample=Image.BICUBIC)
-        cut.save(f'{out_dir}/{room}.webp', quality=90, method=6)
-        meta[room] = {'width': size[0], 'height': size[1], 'anchorX': round(-min_x), 'anchorY': round(-min_y), 'scale': EXPORT}
-        print(room, size, meta[room])
+        corners = np.array([to_logical(p, floor) for p in outline])
+        min_x, min_y = np.floor(corners.min(axis=0)) - 1
+        max_x, max_y = np.ceil(corners.max(axis=0)) + 1
+        s, mid = placement(floor)
+        # Crop the painting to the room's box, then resize: a plain uniform scale.
+        box_view = [(np.array([lx, ly]) - np.array([0, HALF_H])) / s + mid for lx, ly in ((min_x, min_y), (max_x, max_y))]
+        box = tuple(float(v * k) for v in (*box_view[0], *box_view[1]))
+        size = (int(round((max_x - min_x) * EXPORT)), int(round((max_y - min_y) * EXPORT)))
+        cut = image.crop(tuple(int(round(v)) for v in box)).resize(size, Image.LANCZOS)
+        cut.save(f'{out_dir}/{room}.webp', quality=92, method=6)
+
+        left, right, front = (to_logical(p, floor) for p in floor)
+        back = left + right - front
+        meta[room] = {
+            'width': size[0], 'height': size[1],
+            'anchorX': round(-min_x * EXPORT), 'anchorY': round(-min_y * EXPORT), 'scale': EXPORT,
+            'floor': [[round(float(v), 1) for v in p] for p in (back, right, front, left)],
+            'top': round(float(min_y), 1),
+        }
+        print(room, meta[room])
     with open(f'{out_dir}/cut.json', 'w') as f:
         json.dump(meta, f, indent=2)
         f.write('\n')

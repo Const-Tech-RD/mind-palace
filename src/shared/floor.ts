@@ -19,13 +19,17 @@ export const ROOM_TILES = 8
 /**
  * Plan v2 and the asset spec ask for 2-tile hallways. A room is normally shown
  * as its painting, whose back walls are almost five units tall; at 2 tiles a
- * front room's painted walls would cover the floor of the room behind it. Five
- * tiles is the narrowest hallway at which no painted wall reaches another
- * room's floor. In the block view, walls facing a hallway are low as well.
+ * front room's painted walls would cover the floor of the room behind it.
+ * Seven tiles is the narrowest hallway at which no painted wall reaches
+ * another room's floor. In the block view, walls facing a hallway are low as well.
  */
-export const HALL_TILES = 5
-/** How tall a painted room's back walls are, in units (measured on the cut-outs). */
-export const PAINTED_WALL = 4.8
+export const HALL_TILES = 7
+/**
+ * How far a painted room rises above its back corner on the grid, in units:
+ * the tallest cut-out's walls (202 logical px) plus the 17 px its floor starts
+ * above that corner.
+ */
+export const PAINTED_WALL = 6.9
 /** The middle of the lobby, where the hallways cross. */
 export const LOBBY = ROOM_TILES + HALL_TILES / 2
 export const PALACE_TILES = ROOM_TILES * 2 + HALL_TILES

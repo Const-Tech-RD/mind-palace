@@ -515,3 +515,14 @@ Claudio's phase 4 (PR #4) put the palace back on plan v2's rules: no paintings i
 - `assets/rooms/cut/` and `ROOM_CUT` in `roomArt.ts`, removed by phase 4, are back.
 
 What this costs: a room has two appearances, and what you arrange in the piece view is not visible in the painting. In a painted room the items on low walls that phase 4 hides on the map are not drawn at all; the "+N on the walls" note on the label still counts them.
+
+## Painted rooms: no distortion, sharper (2026-11-16)
+
+Nato reported the rooms looked bent and pixelated. Two causes, both mine:
+
+- **Bent.** `cut_rooms.py` mapped three floor corners of each painting onto the grid's room diamond with an affine transform, which squashed the painting vertically and skewed it. It now only scales: the painting keeps its proportions, sized so its floor is as wide as the room diamond. The painted floor is a little deeper than the grid's, and its corners are not exactly the grid's; `ROOM_CUT[...].floor` and `.top` carry the real ones, used for the hover outline, the camera frame and the label height.
+- **Pixelated.** The cut-outs were exported at 2x logical, below the paintings' own resolution, and PixiJS filters draw at resolution 1 unless told otherwise, so the shell and decay filters blurred everything on a dense display. Cut-outs are now 3x (about the paintings' resolution), the filters use `resolution = 'inherit'`, and the textures have mipmaps for the small map view.
+- Undistorted walls are taller (up to 202 logical px), so **hallways are 7 tiles** and the palace 23 x 23. The test that pins the hallway width to the wall height still holds.
+- The spots for Nato, the helpers and the clickable things were converted to the new cut-outs by composing the old and new transforms, then checked on screenshots.
+
+Verified: typecheck, 334 unit tests, E2E S5 9/9, the editor check 4/4, screenshots of the map and a room on a 2x display. Not verified on a 1x display.

@@ -36,8 +36,8 @@ describe('the hallways', () => {
     // Plan v2 says 2 tiles. Rooms are normally shown as their paintings, whose back walls rise
     // PAINTED_WALL units; one tile of hallway moves a front room's wall base 32 px down the screen.
     expect(HALL_TILES * TILE.h).toBeGreaterThanOrEqual(PAINTED_WALL * TILE.unit)
-    expect(HALL_TILES).toBe(5)
-    expect(LOBBY).toBe(10.5)
+    expect(HALL_TILES).toBe(7)
+    expect(LOBBY).toBe(11.5)
   })
 
   it('only ever have low walls facing them, so no wall in front hides a room behind', () => {
@@ -51,25 +51,25 @@ describe('the hallways', () => {
 })
 
 describe('the connected floor', () => {
-  it('is 21 x 21 with four rooms drawn back to front: coding, then art and music, then the mail room', () => {
+  it('is 23 x 23 with four rooms drawn back to front: coding, then art and music, then the mail room', () => {
     const floor = floorOf(empty)
-    expect(floor.tiles).toBe(21)
-    expect(PALACE_TILES).toBe(21)
+    expect(floor.tiles).toBe(23)
+    expect(PALACE_TILES).toBe(23)
     expect(floor.rooms.map((r) => r.id)).toEqual(['coding', 'music', 'art', 'mailroom'])
-    expect(floor.rooms.map((r) => r.origin)).toEqual([[0, 0], [0, 13], [13, 0], [13, 13]])
+    expect(floor.rooms.map((r) => r.origin)).toEqual([[0, 0], [0, 15], [15, 0], [15, 15]])
   })
 
   it('has two hallways that cross, and no room on them', () => {
     const floor = floorOf(empty)
-    expect(floor.halls).toEqual([{ x: 8, y: 0, w: 5, d: 21 }, { x: 0, y: 8, w: 21, d: 5 }])
+    expect(floor.halls).toEqual([{ x: 8, y: 0, w: 7, d: 23 }, { x: 0, y: 8, w: 23, d: 7 }])
     expect(roomAt(3, 3)).toBe('coding')
-    expect(roomAt(14, 1)).toBe('art')
-    expect(roomAt(1, 14)).toBe('music')
-    expect(roomAt(20.9, 20.9)).toBe('mailroom')
+    expect(roomAt(16, 1)).toBe('art')
+    expect(roomAt(1, 16)).toBe('music')
+    expect(roomAt(22.9, 22.9)).toBe('mailroom')
     expect(roomAt(8.5, 3)).toBeNull()
-    expect(roomAt(12.9, 3)).toBeNull()
+    expect(roomAt(14.9, 3)).toBeNull()
     expect(roomAt(3, 9)).toBeNull()
-    expect(roomAt(21, 3)).toBeNull()
+    expect(roomAt(23, 3)).toBeNull()
   })
 
   it('gives outer back walls full height and makes every wall onto a hallway low with a doorway', () => {
@@ -145,7 +145,10 @@ describe('the connected floor', () => {
 
   it('reports a screen box that holds the whole floor and the tallest walls', () => {
     const { bounds } = floorOf(empty)
-    expect(bounds).toEqual({ minX: -672, maxX: 672, minY: -153.6, maxY: 672 })
+    expect(bounds.minX).toBe(-736)
+    expect(bounds.maxX).toBe(736)
+    expect(bounds.minY).toBeCloseTo(-220.8)
+    expect(bounds.maxY).toBe(736)
   })
 })
 

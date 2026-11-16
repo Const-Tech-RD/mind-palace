@@ -27,29 +27,29 @@ export const HOTSPOT_ACTION: Record<HotspotKind, string> = {
 
 export const ROOM_HOTSPOTS: Record<string, Hotspot[]> = {
   coding: [
-    { id: 'desk', kind: 'chat', thing: 'The desk', at: [-102, 128] },
-    { id: 'whiteboard', kind: 'projects', thing: 'The whiteboard', at: [142, -28] },
-    { id: 'jacket', kind: 'finished', thing: 'The stage jacket', at: [53, -22] },
-    { id: 'screens', kind: 'chats', thing: 'The wall of screens', at: [-128, -7] }
+    { id: 'desk', kind: 'chat', thing: 'The desk', at: [-102, 125] },
+    { id: 'whiteboard', kind: 'projects', thing: 'The whiteboard', at: [117, -44] },
+    { id: 'jacket', kind: 'finished', thing: 'The stage jacket', at: [29, -40] },
+    { id: 'screens', kind: 'chats', thing: 'The wall of screens', at: [-150, -29] }
   ],
   music: [
-    { id: 'drums', kind: 'chat', thing: 'The drum kit', at: [131, 75] },
-    { id: 'keyboard', kind: 'projects', thing: 'The keyboard', at: [-35, 163] },
-    { id: 'guitar', kind: 'finished', thing: 'The guitar on the wall', at: [105, -50] },
-    { id: 'booth', kind: 'chats', thing: 'The recording booth', at: [-123, 18] }
+    { id: 'drums', kind: 'chat', thing: 'The drum kit', at: [122, 72] },
+    { id: 'keyboard', kind: 'projects', thing: 'The keyboard', at: [-29, 167] },
+    { id: 'guitar', kind: 'finished', thing: 'The guitar on the wall', at: [75, -71] },
+    { id: 'booth', kind: 'chats', thing: 'The recording booth', at: [-141, 0] }
   ],
   art: [
-    { id: 'easel', kind: 'chat', thing: 'The easel', at: [-159, 17] },
-    { id: 'table', kind: 'projects', thing: 'The drafting table', at: [111, 17] },
-    { id: 'sketches', kind: 'finished', thing: 'The pinned sketches', at: [-82, -87] },
-    { id: 'shelves', kind: 'chats', thing: 'The shelves', at: [-61, -30] }
+    { id: 'easel', kind: 'chat', thing: 'The easel', at: [-162, 10] },
+    { id: 'table', kind: 'projects', thing: 'The drafting table', at: [108, 6] },
+    { id: 'sketches', kind: 'finished', thing: 'The pinned sketches', at: [-87, -104] },
+    { id: 'shelves', kind: 'chats', thing: 'The shelves', at: [-65, -43] }
   ],
   mailroom: [
     { id: 'writing-desk', kind: 'chat', thing: 'The writing desk', at: [79, 123] },
-    { id: 'table', kind: 'projects', thing: 'The sorting table', at: [-71, 76] },
-    { id: 'crates', kind: 'finished', thing: 'The packed crates', at: [2, 191] },
-    { id: 'pigeonholes', kind: 'unsorted', thing: 'The pigeonholes', at: [-128, 4] },
-    { id: 'bell', kind: 'reminders', thing: 'The bell', at: [194, 11] },
-    { id: 'door', kind: 'exit', thing: 'The door', at: [137, -7] }
+    { id: 'table', kind: 'projects', thing: 'The sorting table', at: [-74, 72] },
+    { id: 'crates', kind: 'finished', thing: 'The packed crates', at: [6, 196] },
+    { id: 'pigeonholes', kind: 'unsorted', thing: 'The pigeonholes', at: [-135, -6] },
+    { id: 'bell', kind: 'reminders', thing: 'The bell', at: [187, 4] },
+    { id: 'door', kind: 'exit', thing: 'The door', at: [129, -16] }
   ]
 }
