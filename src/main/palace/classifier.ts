@@ -28,6 +28,8 @@ export interface ClassifierDeps {
   onChanged: (chatId: string) => void
   /** Runs before a chat changes room, so the room it leaves keeps what it earned. */
   beforeMove?: () => void
+  /** A chat the quiet pass looked at: project progress refreshes projects that link it. */
+  onQuiet?: (chatId: string) => void
   now?: () => Date
   log?: (message: string) => void
 }
@@ -161,7 +163,10 @@ export function createClassifier(deps: ClassifierDeps) {
         .filter((chat) => dueForQuietCheck(chat, at))
         .filter((chat) => at.getTime() - (failedAt.get(chat.id) ?? -Infinity) >= RETRY_AFTER_MS)
       let done = 0
-      for (const chat of due) if ((await classify(chat.id)) === 'done') done++
+      for (const chat of due) {
+        if ((await classify(chat.id)) === 'done') done++
+        deps.onQuiet?.(chat.id)
+      }
       return done
     }
   }

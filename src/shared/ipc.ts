@@ -155,6 +155,8 @@ export type AppEvent =
   | { type: 'rooms_changed' }
   /** A notification was clicked: show this project's chat (or the projects panel if it has none). */
   | { type: 'open_project'; projectId: string; chatId: string | null }
+  /** A project's milestones, proposals, folder or running state changed. */
+  | { type: 'progress_changed'; projectId: string }
 
 /** One-way channel, main to renderer, carrying `AppEvent`s. */
 export const APP_EVENT_CHANNEL = 'app:event'
