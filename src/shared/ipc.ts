@@ -8,7 +8,7 @@
  */
 import type { AuthState, ChatEvent, ChatMessage, ChatSummary } from './chat'
 import type { PalaceView } from './palace'
-import type { MilestoneEdit, ProjectProgress, SweepCandidate } from './milestones'
+import type { GitInfo, MilestoneEdit, ProjectProgress, SweepCandidate } from './milestones'
 import type { PlacementChange } from './placements'
 import type { ProjectAction, ProjectSummary } from './projects'
 import type { ReminderItem, ReminderResponse } from './reminders'
@@ -120,6 +120,11 @@ export interface IpcContract {
   'progress:answer': {
     request: { projectId: string; proposalId: string; accept: boolean }
     response: ProjectProgress
+  }
+  /** The project folder's branch, last commit and uncommitted files (read-only, cached until the next refresh); null without a repo. */
+  'progress:git': {
+    request: { projectId: string }
+    response: GitInfo | null
   }
   /** Sets the folder (`'pick'` opens a folder dialog; a cancelled dialog changes nothing) or clears it (null). */
   'progress:folder': {
@@ -240,6 +245,7 @@ export const IPC_CHANNELS = [
   'progress:edit',
   'progress:answer',
   'progress:folder',
+  'progress:git',
   'palace:view',
   'palace:seen',
   'palace:place',

@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { isManifest, normPath } from '@shared/folders'
+import type { GitInfo } from '@shared/milestones'
 import { GIT_LOG_FORMAT, parseCheckboxes, parseGitLog, planMentions, type Checkbox, type Commit } from '@shared/repoEvidence'
 
 const GIT_TIMEOUT_MS = 15_000
@@ -17,12 +18,39 @@ const MAX_PLAN_FILES = 20
 const MAX_MARKDOWN_SEEN = 2_000
 const MAX_PLAN_BYTES = 512 * 1024
 
-function git(args: string[], cwd: string): Promise<string> {
+function git(args: string[], cwd: string, timeout = GIT_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
+    execFile('git', args, { cwd, timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
       error ? reject(error) : resolve(stdout)
     )
   })
+}
+
+/** Seconds a git call for the project page may take. */
+const GIT_INFO_TIMEOUT_MS = 5_000
+
+/**
+ * The folder's branch, newest commit and uncommitted file count, for the
+ * project page. Read-only: `--no-optional-locks` keeps `git status` from
+ * refreshing the index. Null when the folder isn't a repo, is gone, or git is missing.
+ */
+export async function readGitInfo(folder: string): Promise<GitInfo | null> {
+  try {
+    const [branch, last, status] = await Promise.all([
+      git(['--no-optional-locks', 'rev-parse', '--abbrev-ref', 'HEAD'], folder, GIT_INFO_TIMEOUT_MS),
+      git(['--no-optional-locks', 'log', '-1', '--date=short', '--format=%h%x09%ad%x09%s', '--', '.'], folder, GIT_INFO_TIMEOUT_MS).catch(() => ''),
+      git(['--no-optional-locks', 'status', '--porcelain', '--', '.'], folder, GIT_INFO_TIMEOUT_MS)
+    ])
+    const [hash, day, ...subject] = last.trim().split('\t')
+    const name = branch.trim()
+    return {
+      branch: name === 'HEAD' ? (hash ?? 'detached') : name,
+      lastCommit: hash && day ? { subject: subject.join('\t'), day } : null,
+      uncommitted: status.split(/\r?\n/).filter((line) => line.trim() !== '').length
+    }
+  } catch {
+    return null
+  }
 }
 
 /** The git root holding `dir`, or null when it is in no repo, is gone, or git is missing. */

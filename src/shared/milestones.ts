@@ -78,6 +78,16 @@ export interface ProjectProgress {
   running: boolean
 }
 
+/** The project folder's repo as it stands, read-only; null when the folder isn't a repo. */
+export interface GitInfo {
+  /** The checked-out branch, or the short hash when detached. */
+  branch: string
+  /** The newest commit touching the folder. */
+  lastCommit: { subject: string; day: string } | null
+  /** Changed and untracked files under the folder. */
+  uncommitted: number
+}
+
 /** A chat the sweep thinks belongs to a project, for the person to confirm. */
 export interface SweepCandidate {
   id: string
