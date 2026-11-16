@@ -9,6 +9,7 @@ import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from '
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
 import { slotAt } from '@shared/editMode'
+import { fadeDarkness, setFiltersIfAlive, type Fade } from './fade'
 import { darknessOf, FLICKER, flickerOn, LIGHTS_ON_MS, nextFlickerDelay } from '@shared/flicker'
 import type { DecayLevel } from '@shared/engine'
 import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
@@ -305,6 +306,7 @@ export function PalaceCanvas({
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
   const decayLevels = useRef(new Map<string, DecayLevel>())
   const roomLayers = useRef(new Map<string, Container>())
+  const fades = useRef(new Map<string, Fade>())
 
   /** The camera that shows a room, or the whole floor, inside the stage. */
   const cameraFor = (roomId: string | null): Camera => {
@@ -490,14 +492,24 @@ export function PalaceCanvas({
       if (filter) layer.filters = [filter]
       roomLayers.current.set(room.id, layer)
       if (before !== undefined && before >= 3 && room.decay < 3 && !reducedMotion) {
-        // Lights back on: the darkness lifts over a moment instead of vanishing.
-        const from = darknessOf(before)
-        const start = performance.now()
+        // Lights back on: the darkness lifts over a moment instead of vanishing. The fade
+        // belongs to the room, not this layer, so a redraw mid-fade carries it on.
+        const id = room.id
+        fades.current.set(id, { from: darknessOf(before), start: performance.now() })
         const step = (): void => {
-          const t = Math.min(1, (performance.now() - start) / LIGHTS_ON_MS)
-          layer.filters = [decayFilter(room.decay, from * (1 - t)) ?? new ColorMatrixFilter()]
-          if (t < 1 && !layer.destroyed) requestAnimationFrame(step)
-          else layer.filters = filter ? [filter] : []
+          const fade = fades.current.get(id)
+          const current = roomLayers.current.get(id)
+          if (!fade) return
+          const level = decayLevels.current.get(id) ?? 0
+          const dark = fadeDarkness(fade, performance.now(), LIGHTS_ON_MS)
+          if (dark <= 0) {
+            fades.current.delete(id)
+            const settled = decayFilter(level)
+            if (current) setFiltersIfAlive(current, settled ? [settled] : [])
+            return
+          }
+          if (current) setFiltersIfAlive(current, [decayFilter(level, dark) ?? new ColorMatrixFilter()])
+          requestAnimationFrame(step)
         }
         requestAnimationFrame(step)
       }
@@ -535,9 +547,9 @@ export function PalaceCanvas({
           window.setTimeout(() => {
             const layer = roomLayers.current.get(room.id)
             if (layer && !layer.destroyed) {
-              layer.filters = [decayFilter(room.decay, FLICKER.alpha)!]
+              setFiltersIfAlive(layer, [decayFilter(room.decay, FLICKER.alpha)!])
               timers.push(window.setTimeout(() => {
-                if (!layer.destroyed) layer.filters = [decayFilter(room.decay)!]
+                setFiltersIfAlive(layer, [decayFilter(room.decay)!])
               }, FLICKER.ms))
             }
             schedule()
