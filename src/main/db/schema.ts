@@ -100,9 +100,9 @@ export const goalCompletions = sqliteTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     roomId: text('room_id').notNull(),
     /** `YYYY-MM-DD` in the settings timezone at the moment of completion. */
-    localDay: text('local_day').notNull(),
-    /** False when a second completion lands on the same local day in the same room. */
-    counted: integer('counted', { mode: 'boolean' }).notNull().default(true)
+    localDay: text('local_day').notNull()
+    // No "counted" flag: at most one completion per room counts each local day,
+    // and the engine derives that from the rows (a stored flag went stale on reopen).
   },
   (t) => [
     index('goal_completions_room_day_idx').on(t.roomId, t.localDay),

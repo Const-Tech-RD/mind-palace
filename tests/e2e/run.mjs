@@ -604,7 +604,7 @@ async function sessionProjects() {
     {
       id: 'P6', area: 'Projects', title: 'Done counts one goal per room per day',
       steps: ['Open Projects.', 'Press Done on "CLI todo tool" (Coding room).', 'Press Done on "Blog engine" (Coding room) the same day.'],
-      expected: 'Both move to Done. The first completion is counted; the second, same room and same day, is stored with `counted = false`.',
+      expected: 'Both move to Done and both completions are stored on the same local day; the engine counts that day once.',
       failShot
     },
     async () => {
@@ -614,9 +614,10 @@ async function sessionProjects() {
       await until(() => sql(userData, "select state from projects where id = 'p-todo'") === 'done', { timeout: 10_000, what: 'the first Done' })
       await action('Blog engine', 'Done')
       await until(() => sql(userData, "select state from projects where id = 'p-blog'") === 'done', { timeout: 10_000, what: 'the second Done' })
-      const rows = sql(userData, "select project_id || ':' || counted from goal_completions order by project_id desc").replace(/\n/g, ', ')
-      expect(rows === 'p-todo:1, p-blog:0', `completions were: ${rows}`)
-      return { observed: `Completions: ${rows} (1 = counted).` }
+      const rows = sql(userData, "select project_id || ':' || local_day from goal_completions order by project_id desc").replace(/\n/g, ', ')
+      const days = new Set(rows.split(', ').map((row) => row.split(':')[1]))
+      expect(rows.startsWith('p-todo:') && rows.includes('p-blog:') && days.size === 1, `completions were: ${rows}`)
+      return { observed: `Completions: ${rows} (the engine counts that day once).` }
     }
   )
 

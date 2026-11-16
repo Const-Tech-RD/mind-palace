@@ -84,13 +84,8 @@ export function createProjectService(deps: ProjectServiceDeps) {
         })
         if (change.completion === 'add') {
           const localDay = localDayOf(at, deps.timeZone())
-          repo.addCompletion({
-            projectId,
-            roomId: project.roomId,
-            localDay,
-            // At most one completion per room counts each local day.
-            counted: !repo.hasCountedCompletion(project.roomId, localDay)
-          })
+          // Every completion is stored; the engine counts at most one per room per local day.
+          repo.addCompletion({ projectId, roomId: project.roomId, localDay })
         } else if (change.completion === 'remove') {
           repo.removeCompletions(projectId)
         }
