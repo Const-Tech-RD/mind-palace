@@ -122,7 +122,8 @@ export function applyEdit(list: Milestone[], edit: MilestoneEdit, ctx: EditConte
       return update(list, edit.id, (m) =>
         edit.done
           ? { ...m, status: 'done', doneOn: edit.doneOn ?? ctx.today, evidence: 'user', evidenceRef: null, edited: true, statusByUser: true }
-          : { ...m, status: 'planned', doneOn: null, edited: true, statusByUser: true }
+          : // Back to planned by hand: whatever showed it done no longer stands.
+            { ...m, status: 'planned', doneOn: null, evidence: 'user', evidenceRef: null, edited: true, statusByUser: true }
       )
     case 'rename': {
       const title = cleanTitle(edit.title)

@@ -52,6 +52,11 @@ describe('applyEdit', () => {
     expect(a).toMatchObject({ status: 'planned', doneOn: null, statusByUser: true, edited: true })
   })
 
+  it('an untick drops the evidence that it was done', () => {
+    const done = ms('a', 'Login', { status: 'done', doneOn: '2026-10-01', evidence: 'commit', evidenceRef: 'a1b2c3d' })
+    expect(byId(applyEdit([done], { kind: 'tick', id: 'a', done: false }, ctx), 'a')).toMatchObject({ evidence: 'user', evidenceRef: null })
+  })
+
   it('a rename keeps the original title', () => {
     const b = byId(applyEdit(list(), { kind: 'rename', id: 'b', title: '  Stripe payments ' }, ctx), 'b')
     expect(b).toMatchObject({ title: 'Stripe payments', originalTitle: 'Payments', edited: true })
