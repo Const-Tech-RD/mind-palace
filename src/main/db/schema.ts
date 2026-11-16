@@ -51,8 +51,13 @@ export const messages = sqliteTable(
       .references(() => chats.id, { onDelete: 'cascade' }),
     role: text('role', { enum: MESSAGE_ROLES }).notNull(),
     content: text('content').notNull(),
-    /** The local day of this timestamp feeds the streak. */
     createdAt: text('created_at').notNull().default(utcNow),
+    /**
+     * `YYYY-MM-DD` in the settings timezone when the message was written; feeds
+     * the streak. Stored so a later timezone change never rewrites past days.
+     * Null only on rows older than the column, until the launch backfill.
+     */
+    localDay: text('local_day'),
     tokensIn: integer('tokens_in'),
     tokensOut: integer('tokens_out')
   },
@@ -100,9 +105,9 @@ export const goalCompletions = sqliteTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     roomId: text('room_id').notNull(),
     /** `YYYY-MM-DD` in the settings timezone at the moment of completion. */
-    localDay: text('local_day').notNull(),
-    /** False when a second completion lands on the same local day in the same room. */
-    counted: integer('counted', { mode: 'boolean' }).notNull().default(true)
+    localDay: text('local_day').notNull()
+    // No "counted" flag: at most one completion per room counts each local day,
+    // and the engine derives that from the rows (a stored flag went stale on reopen).
   },
   (t) => [
     index('goal_completions_room_day_idx').on(t.roomId, t.localDay),

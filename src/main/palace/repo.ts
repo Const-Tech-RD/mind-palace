@@ -169,17 +169,7 @@ export function createPalaceRepo(db: Db) {
       return ids
     },
 
-    /** True when the room already has a counted completion on that local day. */
-    hasCountedCompletion(roomId: string, localDay: string): boolean {
-      const row = db
-        .select({ id: goalCompletions.id })
-        .from(goalCompletions)
-        .where(and(eq(goalCompletions.roomId, roomId), eq(goalCompletions.localDay, localDay), eq(goalCompletions.counted, true)))
-        .get()
-      return row !== undefined
-    },
-
-    addCompletion(input: { projectId: string; roomId: string; localDay: string; counted: boolean }): void {
+    addCompletion(input: { projectId: string; roomId: string; localDay: string }): void {
       db.insert(goalCompletions).values({ id: randomUUID(), ...input }).run()
     },
 

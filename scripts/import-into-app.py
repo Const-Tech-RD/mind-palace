@@ -181,19 +181,16 @@ def main():
         db.executemany(
             'INSERT INTO chats (id, title, room_id, room_source, classified_at, created_at, last_message_at) '
             'VALUES (:id, :title, :room_id, :room_source, :classified_at, :created_at, :last_message_at)', chats)
-        db.executemany('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)', messages)
+        db.executemany('INSERT INTO messages (id, chat_id, role, content, created_at, local_day) VALUES (?, ?, ?, ?, ?, ?)',
+                       [(*row, local_day(row[4], tz_name)) for row in messages])
         db.executemany(
             'INSERT INTO projects (id, title, room_id, origin_chat_id, state, last_activity_at, created_at, closed_at) '
             'VALUES (:id, :title, :room_id, :origin_chat_id, :state, :last_activity_at, :created_at, :closed_at)', projects)
         db.executemany('INSERT INTO project_chats (project_id, chat_id) VALUES (?, ?)', links)
-        # One counted completion per room per local day, as the app does.
-        counted_days = {(room, day) for room, day in db.execute('SELECT room_id, local_day FROM goal_completions WHERE counted = 1')}
+        # Every completion is stored; the app counts at most one per room per local day.
         for project_id, room, closed in sorted(completions, key=lambda row: row[2]):
-            day = local_day(closed, tz_name)
-            counted = (room, day) not in counted_days
-            counted_days.add((room, day))
-            db.execute('INSERT INTO goal_completions (id, project_id, room_id, local_day, counted) VALUES (?, ?, ?, ?, ?)',
-                       ('ccg-' + project_id[4:], project_id, room, day, 1 if counted else 0))
+            db.execute('INSERT INTO goal_completions (id, project_id, room_id, local_day) VALUES (?, ?, ?, ?)',
+                       ('ccg-' + project_id[4:], project_id, room, local_day(closed, tz_name)))
         db.commit()
         print('imported.')
     finally:

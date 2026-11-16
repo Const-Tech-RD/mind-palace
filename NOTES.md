@@ -92,9 +92,10 @@ The plan's "Core logic" wins in every case.
   current room, with a local day on each. `buildRoomEvents(rows, timeZone)`
   makes them from `chats`, `messages` and `goal_completions` rows; it is pure
   too. A reopened goal is simply absent (`reopenGoal` removes it).
-- Timezone change: message days are re-derived from the UTC timestamp with the
-  new zone, for the whole history. Goal completions keep the `local_day` stored
-  when they were completed. Events dated after `today` are left out.
+- Timezone change: messages and goal completions keep the `local_day` stored
+  when they were written, so a new zone never rewrites past room days (changed
+  in the review fixes below; before that, message days were re-derived).
+  Events dated after `today` are left out.
 - `nextUnlock.streak.remaining` is measured from the current run, not from the
   longest one: after a break at a best of 3, the next unlock is 5 days away.
 - A weekend chat counts toward the streak (the plan's open question, answered
@@ -126,10 +127,10 @@ The plan's "Core logic" wins in every case.
 
 - Should the trophy shelf appear at 1 goal (as built) or wait for the first
   milestone at 2, leaving the first trophy without a shelf?
-- Should a timezone change be allowed to rewrite past room days, or should each
-  message keep the local day it had when it was written (a stored column)?
+- ~~Should a timezone change be allowed to rewrite past room days?~~ No: each
+  message stores its local day (review fixes).
 - Should furniture disappear from a room when a chat is moved out of it?
-- Keep `goal_completions.counted`, or derive it?
+- ~~Keep `goal_completions.counted`, or derive it?~~ Derived; the column is gone (review fixes).
 - Where do the layer and footprint of base and shared items live: a new
   `catalog/base.json`, or only the art manifest?
 
@@ -177,8 +178,8 @@ Known gaps:
 
 - **A stopped answer is not in Claude's memory.** The partial text is saved and shown, but the SDK session does not keep an aborted turn, so on the next message Claude does not know what it had written.
 - **The trailing "Sources:" list** the web search tool makes the model write is hidden from the body and shown as chips (`splitSources`). The stored content keeps it.
-- **`claude login` is not the command** on current Claude Code; it is `claude auth login --claudeai`. The sign-in screen still says `claude login` and should be corrected.
-- Launching the app from inside a Claude Code session passes that session's `ANTHROPIC_BASE_URL` and `CLAUDE_CODE_*` variables to the SDK, which then uses that session's credentials. Launch it from a normal terminal or Finder.
+- ~~The sign-in screen says `claude login`~~: it shows `claude auth login --claudeai` (checked in the review fixes).
+- ~~Launching from inside a Claude Code session leaks its variables to the SDK~~: fixed in the review fixes (allow-listed environment).
 - Not exercised by hand: deleting a chat from the sidebar, and the "no login at all" screen (this machine always had one).
 
 ## Phase 2 · Rooms and projects (2026-11-15)
@@ -341,3 +342,27 @@ Not verified: that a chat sent after "Chat here" really lands in that room (need
 Verified: typecheck; 231 unit tests (7 new for the search); full E2E run 35 pass, 1 fail (R1, a test selector), 1 skipped (L3, as before); R1 fixed and S1 rerun 12/12. New cases V6 (panel beside the room) and V7 (starts on the palace; Cmd+K). The E2E `launch()` helper now expands the rail and opens New chat so the older cases start where they used to.
 
 Not verified: S2 was not rerun after one selector in it was scoped to the chat panel (line ~682). `report.pdf` is not regenerated and `results.json` now holds only the last partial run. Narrow windows (under ~900px). Screen-reader behaviour of the command bar.
+
+## Review fixes from plan v2's handoff (2026-11-15)
+
+From `docs/HANDOFF.md`, "Fixes found in review". Windows 11 dev machine.
+
+- **Sign-in command.** Already right: `Login.tsx` shows `claude auth login --claudeai` and E2E L1 checks for it. Only these notes were stale.
+- **Environment.** `src/main/chat/env.ts` builds the SDK child's environment from an allow-list (paths, home, locale, Windows basics, proxies, `CLAUDE_CONFIG_DIR`). The SDK's `env` replaces the child environment, so nothing else gets through. A Claude Code shell on this machine carried `ANTHROPIC_BASE_URL` and about 30 `CLAUDE_CODE_*` variables; with the fix the SDK starts with `apiKeySource: none` (the user's own OAuth login). The login check no longer accepts a token in the environment, since it is never passed on. E2E L1 now fakes a refused login with a throwaway `CLAUDE_CONFIG_DIR` (not run yet, see below).
+- **`counted`.** Dropped (migration 0002). Done stores every completion; the engine counts one per room per local day, as it already did.
+- **Local day.** `messages.local_day` (migration 0003) is stamped in the settings timezone at write time and preferred by the engine. At launch, older rows are stamped once with the current zone. Checked on a database rolled back to migration 0001: both migrations apply, a completion row survives, a 03:30Z message gets 2026-11-02 in Santo Domingo.
+- **Windows.** 11 catalog tests failed on `\` path separators; they now normalise to `/`. `npm install` did not download the Electron binary here (`Error: Electron uninstall` on `npm run dev`); `node node_modules/electron/install.js` fixed it.
+
+### The 38k tokens per turn are web search results, not the prompt
+
+Measured with SDK 0.3.325, Sonnet 5.5, the app's exact options, per API call:
+
+| Turn | Calls | Input per call | Notes |
+| --- | --- | --- | --- |
+| "Reply with ok" (no search) | 1 | 1,664 (all cache creation) | System prompt + the one tool + the CLI's base. |
+| One factual question (2 searches) | 6 | ~1.7k, then ~38.5k | Each search's results add ~36,800 tokens, re-read on every later call. |
+
+So the SDK's own prompt and tool list are already about 1.7k; trimming them saves almost nothing. The cost is the search result payload, and the stored `tokens_in` (input + cache read + cache creation, summed over calls) shows a two-search turn as ~78k. Not changed yet: what to do about it is an open decision (fewer searches per answer, a fetch-based tool with smaller pages, or showing cache reads separately in the ledger).
+
+E2E on Windows: `node tests/e2e/run.mjs --only S3` passes L1 with the new fake login. L2 fails only because the harness calls the `sqlite3` CLI (not installed here), and the report step then crashes on macOS's `sw_vers`: the E2E harness is macOS-only for now. S1, S2, S4 and S5 were not run, so P6's new completion check is unverified.
+

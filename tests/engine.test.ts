@@ -438,7 +438,26 @@ describe('timezone change', () => {
     expect(() => localDayOf('2026-11-03T03:30:00.000Z', 'Mars/Olympus')).toThrow()
   })
 
-  it('re-buckets every message when the setting changes', () => {
+  it('keeps the local day stored on a message when the setting changes', () => {
+    // Written in Santo Domingo: Monday 23:30 and Tuesday 16:00, stored as such.
+    const stored: HistoryRows = {
+      ...rows,
+      messages: [
+        { chatId: 'a', role: 'user', createdAt: '2026-11-03T03:30:00.000Z', localDay: MON },
+        { chatId: 'a', role: 'user', createdAt: '2026-11-03T20:00:00.000Z', localDay: TUE }
+      ]
+    }
+    for (const tz of ['America/Santo_Domingo', 'Europe/London', 'Asia/Tokyo']) {
+      const events = buildRoomEvents(stored, tz)
+      expect(events.filter((e) => e.kind === 'user_message').map((e) => e.localDay)).toEqual([MON, TUE])
+      // In London both instants are Tuesday, yet the two room days and the chair stay.
+      const state = computeRoomState('coding', events, catalog, TUE)
+      expect(state.streak).toMatchObject({ current: 2, best: 2, lastRoomDay: TUE })
+      expect(placed(state)).toContain('base_chair@seat')
+    }
+  })
+
+  it('derives the day from the timestamp only for rows written before days were stored', () => {
     // Santo Domingo (UTC-4): Monday 23:30 and Tuesday 16:00 -> two room days.
     const home = computeRoomState('coding', buildRoomEvents(rows, 'America/Santo_Domingo'), catalog, TUE)
     expect(home.streak).toMatchObject({ current: 2, best: 2, lastRoomDay: TUE })
