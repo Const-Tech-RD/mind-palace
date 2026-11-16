@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
-import { activeToday, buildPalace, currentRoomOf, decayText, itemKey, itemLabel, newSince, rewardText, seenKeys, trackProgress } from '../src/shared/palace'
+import { activeToday, buildPalace, currentRoomOf, decayText, itemKey, itemLabel, newSince, rewardText, seenKeys, suggestionText, trackProgress } from '../src/shared/palace'
 import { addDays } from './shared'
 import { catalog } from './helpers'
 
@@ -251,5 +251,21 @@ describe('suggested rooms in the palace', () => {
     expect(view.ethereal).toBeNull()
     expect(view.floor.ethereal).toBeNull()
     expect(view.suggestions).toEqual([])
+  })
+})
+
+describe('suggestionText', () => {
+  it('names the area and how many chats are about it', () => {
+    expect(suggestionText({ area: '3d_printing', name: '3D printing', chats: 4, lastAt: null })).toBe('3D printing · 4 chats')
+    expect(suggestionText({ area: 'x', name: 'Cooking', chats: 1, lastAt: null })).toBe('Cooking · 1 chat')
+  })
+})
+
+describe('itemLabel for library items', () => {
+  it('drops the library prefix, whichever room the item stands in', () => {
+    expect(itemLabel('print3d_printer')).toBe('Printer')
+    expect(itemLabel('print3d_filament_rack')).toBe('Filament rack')
+    expect(itemLabel('finance_filing_cabinet')).toBe('Filing cabinet')
+    expect(itemLabel('coding_monitor')).toBe('Monitor')
   })
 })

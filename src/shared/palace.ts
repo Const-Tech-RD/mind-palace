@@ -138,7 +138,8 @@ export function itemLabel(itemId: string, roomIds: readonly string[] = []): stri
   const special = SPECIAL_LABELS[itemId]
   if (special) return special
   let name = itemId
-  for (const prefix of ['base', 'mail', ...roomIds]) {
+  // Library items carry their area as a prefix (catalog/library.json); rooms' own items their room id.
+  for (const prefix of ['base', 'mail', 'coding', 'music', 'art', 'finance', 'print3d', ...roomIds]) {
     if (name.startsWith(`${prefix}_`)) {
       name = name.slice(prefix.length + 1)
       break
@@ -225,4 +226,9 @@ const DECAY_WORD: Record<1 | 2 | 3 | 4, string> = { 1: 'Dusty', 2: 'Cobwebs', 3:
 export function decayText(decay: RoomState['decay'], projectTitle: string | null): string | null {
   if (decay.level === 0) return null
   return `${DECAY_WORD[decay.level]}: ${decay.weekdaysQuiet} quiet weekdays on ${projectTitle ?? 'its quietest project'}`
+}
+
+/** A suggested room in words: "3D printing · 4 chats". */
+export function suggestionText(suggestion: Suggestion): string {
+  return `${suggestion.name} · ${plural(suggestion.chats, 'chat')}`
 }

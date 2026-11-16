@@ -242,6 +242,9 @@ interface Camera {
   y: number
 }
 
+/** The label id of the suggested (ghost) room. */
+export const ETHEREAL_LABEL = '__ethereal__'
+
 export interface CanvasLabel {
   id: string
   left: number
@@ -431,16 +434,24 @@ export function PalaceCanvas({
         }
 
         // Tell React where the labels go, only when the camera has moved.
-        const key = `${cam.now.scale.toFixed(3)}|${cam.now.x.toFixed(1)}|${cam.now.y.toFixed(1)}`
+        const key = `${cam.now.scale.toFixed(3)}|${cam.now.x.toFixed(1)}|${cam.now.y.toFixed(1)}|${latest.current.floor.rooms.length}|${latest.current.floor.ethereal?.name ?? ''}`
         if (key !== last) {
           last = key
-          latest.current.onLabels(
-            latest.current.floor.rooms.map((room) => {
+          const ghost = latest.current.floor.ethereal
+          latest.current.onLabels([
+            ...latest.current.floor.rooms.map((room) => {
               const tall = room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
               const at = iso(room.origin[0], room.origin[1], tall - 0.6)
               return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
-            })
-          )
+            }),
+            // The suggested room's card sits over the middle of its ghost floor.
+            ...(ghost
+              ? [(() => {
+                  const at = iso(ghost.origin[0] + ROOM_TILES / 2, ghost.origin[1] + ROOM_TILES / 2)
+                  return { id: ETHEREAL_LABEL, left: at.x * cam.now.scale + cam.now.x, top: at.y * cam.now.scale + cam.now.y }
+                })()]
+              : [])
+          ])
         }
       })
       setReady(true)

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog } from 'electron'
 import { formatIssue } from '@shared/catalog'
@@ -6,7 +6,7 @@ import type { ChatEvent } from '@shared/chat'
 import { APP_EVENT_CHANNEL, CHAT_EVENT_CHANNEL, type AppEvent, type AppStatus } from '@shared/ipc'
 import { SCHEDULER_MINUTES } from '@shared/reminders'
 import { CatalogError, loadCatalog, type LoadedCatalog } from './catalog/loader'
-import { askJson } from './chat/claude'
+import { askJson, type JsonAnswer } from './chat/claude'
 import { createChatRepo } from './chat/repo'
 import { createChatService, type ChatService } from './chat/service'
 import { createClassifier } from './palace/classifier'
@@ -123,8 +123,9 @@ function start(): void {
   const onChanged = (chatId: string): void => emit({ type: 'updated', chatId })
 
   const emitApp = (event: AppEvent): void => getMainWindow()?.webContents.send(APP_EVENT_CHANNEL, event)
+  const fakeModel = !app.isPackaged ? process.env['MIND_PALACE_FAKE_MODEL'] : undefined
   const askSmallModel = (prompt: string, system: string, schema: Record<string, unknown>) =>
-    askJson({
+    fakeModel ? fakeAnswer(fakeModel, schema) : askJson({
       prompt,
       system,
       schema,
@@ -325,4 +326,21 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(start)
+}
+
+/**
+ * Screenshot runs only (never a packaged build): answers small-model calls from
+ * a JSON file `{ "materialize": …, "grouping": …, "classify": … }`, picked by
+ * the shape asked for, so the UI can be driven without the network.
+ */
+function fakeAnswer(file: string, schema: Record<string, unknown>): Promise<JsonAnswer> {
+  const required = (schema['required'] as string[] | undefined) ?? []
+  const kind = required.includes('items') ? 'materialize' : required.includes('areas') ? 'grouping' : 'classify'
+  try {
+    const answers = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+    if (!(kind in answers)) return Promise.resolve({ ok: false, error: `the fake model has no "${kind}" answer` })
+    return Promise.resolve({ ok: true, value: answers[kind], tokensIn: 0, tokensOut: 0 })
+  } catch (error) {
+    return Promise.resolve({ ok: false, error: `the fake model file cannot be read: ${error instanceof Error ? error.message : String(error)}` })
+  }
 }
