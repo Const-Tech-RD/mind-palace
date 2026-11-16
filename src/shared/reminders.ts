@@ -44,16 +44,25 @@ export interface DueReminder {
   remindersSent: number
 }
 
-/**
- * The reminder a project is due, if any. Only active projects are reminded;
- * a snooze holds the reminder back until it ends.
- */
-export function reminderDue(project: ReminderProject, now: Date): DueReminder | null {
+/** When the project's next reminder comes due (ISO instant), or null for a project that isn't reminded. */
+export function nextReminderAt(project: ReminderProject): string | null {
   if (project.state !== 'active') return null
   const base = Date.parse(project.lastActivityAt ?? project.createdAt)
   if (Number.isNaN(base)) return null
   const snoozed = project.snoozedUntil ? Date.parse(project.snoozedUntil) : Number.NEGATIVE_INFINITY
   const due = Math.max(base + offsetDays(project.remindersSent) * DAY_MS, Number.isNaN(snoozed) ? Number.NEGATIVE_INFINITY : snoozed)
+  return new Date(due).toISOString()
+}
+
+/**
+ * The reminder a project is due, if any. Only active projects are reminded;
+ * a snooze holds the reminder back until it ends.
+ */
+export function reminderDue(project: ReminderProject, now: Date): DueReminder | null {
+  const next = nextReminderAt(project)
+  if (next === null) return null
+  const base = Date.parse(project.lastActivityAt ?? project.createdAt)
+  const due = Date.parse(next)
   if (due > now.getTime()) return null
 
   let sent = project.remindersSent + 1

@@ -51,6 +51,8 @@ export type MilestoneEdit =
   | { kind: 'move'; id: string; toIndex: number }
   | { kind: 'add'; title: string; afterId: string | null }
   | { kind: 'delete'; id: string }
+  /** "Confirm" in the review banner: the person keeps a milestone only the chats backed. */
+  | { kind: 'confirm'; id: string }
 
 export interface EditContext {
   /** `YYYY-MM-DD` in the settings timezone. */
@@ -156,6 +158,8 @@ export function applyEdit(list: Milestone[], edit: MilestoneEdit, ctx: EditConte
       }
       return insertAfter(list, item, edit.afterId)
     }
+    case 'confirm':
+      return update(list, edit.id, (m) => ({ ...m, edited: true }))
     case 'delete': {
       const next = update(list, edit.id, (m) => ({ ...m, deletedAt: ctx.now, edited: true }))
       return renumber(next, ordered(next))

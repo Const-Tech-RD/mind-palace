@@ -242,6 +242,11 @@ function nextUnlock(rules: Rules, room: RoomDef, track: Track, reached: number, 
 /** Weekdays without activity at which each decay level starts (plan v2: dusty, cobwebs, mostly dark, dark). */
 export const DECAY_THRESHOLDS = [7, 14, 21, 30] as const
 
+/** The decay level a project's quiet weekdays put its room at. */
+export function decayLevel(weekdaysQuiet: number): DecayLevel {
+  return DECAY_THRESHOLDS.filter((t) => weekdaysQuiet >= t).length as DecayLevel
+}
+
 /**
  * The room's decay comes from its quietest active project. A room with no
  * active project never decays, and furniture is never removed by it.
@@ -252,8 +257,7 @@ function decayOf(projects: ReadonlyArray<Extract<RoomEvent, { kind: 'project' }>
     if (project.state !== 'active') continue
     const quiet = project.lastActivityDay === null ? 0 : weekdaysBetween(project.lastActivityDay, today)
     if (quietest.projectId === null || quiet > quietest.weekdaysQuiet) {
-      const level = DECAY_THRESHOLDS.filter((t) => quiet >= t).length as DecayLevel
-      quietest = { level, weekdaysQuiet: quiet, projectId: project.projectId }
+      quietest = { level: decayLevel(quiet), weekdaysQuiet: quiet, projectId: project.projectId }
     }
   }
   return quietest
