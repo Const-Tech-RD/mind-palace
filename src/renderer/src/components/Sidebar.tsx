@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { groupChatsByRoom } from '@shared/chat'
 import { useStore } from '../store'
+import { MusicPlayer } from './MusicPlayer'
 import { CHAT_DRAG_TYPE } from './PalaceCanvas'
 
 const icon = (path: ReactNode) => (
@@ -183,6 +184,9 @@ export function Sidebar() {
           ))}
         </nav>
       )}
+
+      {!open && <span className="flex-1" />}
+      <MusicPlayer open={open} />
 
       {open && (
         <footer className="border-t border-brass/25 px-4 py-2 text-xs text-muted">

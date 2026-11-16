@@ -123,7 +123,29 @@ export interface IpcContract {
     request: { enabled?: boolean }
     response: { enabled: boolean }
   }
+  /** The palace's music, if a file has been chosen. */
+  'music:get': {
+    request: void
+    response: MusicTrack | null
+  }
+  /** Opens the system's file picker for an audio file; resolves with the track now set (unchanged when cancelled). */
+  'music:choose': {
+    request: void
+    response: MusicTrack | null
+  }
+  'music:clear': {
+    request: void
+    response: null
+  }
 }
+
+/** The music file the person chose. Only its name leaves the main process. */
+export interface MusicTrack {
+  name: string
+}
+
+/** Where the renderer plays the music from; the main process answers with the chosen file. */
+export const MUSIC_URL = 'mp-media://track/current'
 
 /** One-way channel, main to renderer, carrying `ChatEvent`s. */
 export const CHAT_EVENT_CHANNEL = 'chat:event'
@@ -176,7 +198,10 @@ export const IPC_CHANNELS = [
   'palace:reset',
   'reminder:list',
   'reminder:respond',
-  'reminder:notifications'
+  'reminder:notifications',
+  'music:get',
+  'music:choose',
+  'music:clear'
 ] as const satisfies readonly IpcChannel[]
 
 /** What the preload puts on `window.mindPalace`. */

@@ -1277,9 +1277,87 @@ async function sessionPalace() {
   rmSync(userData, { recursive: true, force: true })
 }
 
+// ---------------------------------------------------------------- S6: music
+
+/** A few seconds of a quiet tone as a WAV file: something real for the player to play. */
+function writeTone(path, seconds = 4) {
+  const rate = 22050
+  const samples = rate * seconds
+  const data = Buffer.alloc(samples * 2)
+  for (let i = 0; i < samples; i++) data.writeInt16LE(Math.round(Math.sin((i / rate) * 2 * Math.PI * 330) * 2500), i * 2)
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0)
+  header.writeUInt32LE(36 + data.length, 4)
+  header.write('WAVEfmt ', 8)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(rate, 24)
+  header.writeUInt32LE(rate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(data.length, 40)
+  writeFileSync(path, Buffer.concat([header, data]))
+}
+
+async function sessionMusic() {
+  const userData = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-music-'))
+  // First launch creates the database; the music file is then set the way the file picker would set it.
+  let { app, page } = await launch(userData)
+  await app.close()
+  const tone = join(userData, 'Evening in the palace.wav')
+  writeTone(tone)
+  sql(userData, `insert or replace into settings (key, value) values ('music.path', ${q(tone)});`)
+  ;({ app, page } = await launch(userData))
+  const failShot = () => shot(page, 'failure', 'State when the case failed')
+  const player = page.getByTestId('music-player')
+
+  await testCase(
+    {
+      id: 'M1', area: 'Music', title: 'The palace plays its music on opening, and it can be paused and muted',
+      steps: [
+        'Choose an audio file as the palace music (set directly in the settings here, as the file picker would).',
+        'Open the app.',
+        'Pause it, play it again, then mute it.'
+      ],
+      expected:
+        'The music starts by itself and the player shows the file name without its folder or extension. Pause stops it and Play resumes it. Mute silences it without stopping it. Reopening the app after a pause does not start the music.',
+      failShot
+    },
+    async () => {
+      await player.getByRole('button', { name: 'Pause the music' }).waitFor({ timeout: 15_000 })
+      const name = (await page.getByTestId('music-track').innerText()).trim()
+      expect(name === 'Evening in the palace', `the track was shown as: ${name}`)
+      const playingShot = await shot(page, 'M1-playing', 'M1 · The music player at the foot of the rail, playing the chosen file')
+      await player.getByRole('button', { name: 'Mute the music' }).click()
+      await player.getByRole('button', { name: 'Unmute the music' }).waitFor({ timeout: 5_000 })
+      expect((await player.getByRole('button', { name: 'Pause the music' }).count()) === 1, 'muting stopped the music')
+      await player.getByRole('button', { name: 'Unmute the music' }).click()
+      await player.getByRole('button', { name: 'Pause the music' }).click()
+      await player.getByRole('button', { name: 'Play the music' }).waitFor({ timeout: 5_000 })
+      await player.getByRole('button', { name: 'Play the music' }).click()
+      await player.getByRole('button', { name: 'Pause the music' }).waitFor({ timeout: 5_000 })
+      // Paused when the app is closed: it stays quiet the next time.
+      await player.getByRole('button', { name: 'Pause the music' }).click()
+      await player.getByRole('button', { name: 'Play the music' }).waitFor({ timeout: 5_000 })
+      await page.reload()
+      await page.getByTestId('palace-stage').waitFor({ timeout: 15_000 })
+      await page.getByRole('button', { name: 'Show chats' }).click().catch(() => {})
+      await page.getByTestId('music-track').waitFor({ timeout: 10_000 })
+      await page.waitForTimeout(1500)
+      expect((await player.getByRole('button', { name: 'Play the music' }).count()) === 1, 'the music started again after having been paused')
+      return { observed: `Played "${name}" on opening; mute, pause and play worked; it stayed paused after a reload.`, screenshots: [playingShot] }
+    }
+  )
+
+  await app.close()
+  rmSync(userData, { recursive: true, force: true })
+}
+
 // ---------------------------------------------------------------- main
 
-const sessions = { S1: sessionChat, S2: sessionProjects, S3: sessionAuth, S4: sessionReminders, S5: sessionPalace }
+const sessions = { S1: sessionChat, S2: sessionProjects, S3: sessionAuth, S4: sessionReminders, S5: sessionPalace, S6: sessionMusic }
 const startedAt = new Date()
 for (const [name, run] of Object.entries(sessions)) {
   if (only && only !== name) continue

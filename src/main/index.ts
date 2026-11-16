@@ -7,6 +7,7 @@ import { APP_EVENT_CHANNEL, CHAT_EVENT_CHANNEL, type AppEvent, type AppStatus } 
 import { SCHEDULER_MINUTES } from '@shared/reminders'
 import { CatalogError, loadCatalog, type LoadedCatalog } from './catalog/loader'
 import { askJson } from './chat/claude'
+import { createMusic, registerMusicScheme } from './music'
 import { createChatRepo } from './chat/repo'
 import { createChatService, type ChatService } from './chat/service'
 import { createClassifier } from './palace/classifier'
@@ -213,6 +214,12 @@ function start(): void {
   })
   handle('reminder:list', () => reminderService.list())
   handle('reminder:respond', ({ reminderId, response }) => reminderService.respond(reminderId, response))
+  const music = createMusic(db)
+  music.serve()
+  handle('music:get', () => music.track())
+  handle('music:choose', () => music.choose(getMainWindow()))
+  handle('music:clear', () => music.clear())
+
   handle('reminder:notifications', ({ enabled }) => {
     if (enabled !== undefined) db.setSetting('notifications', enabled ? 'on' : 'off')
     return { enabled: db.getSetting('notifications') !== 'off' }
@@ -270,5 +277,6 @@ if (!app.requestSingleInstanceLock()) {
     store = null
   })
 
+  registerMusicScheme()
   void app.whenReady().then(start)
 }

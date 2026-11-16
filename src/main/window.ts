@@ -26,7 +26,9 @@ export function createMainWindow(options: { show: boolean }): BrowserWindow {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // The palace's music starts when the app opens, without waiting for a click.
+      autoplayPolicy: 'no-user-gesture-required'
     }
   })
   mainWindow = win
