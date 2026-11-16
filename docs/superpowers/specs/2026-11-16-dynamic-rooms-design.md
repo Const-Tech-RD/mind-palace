@@ -106,6 +106,10 @@ Why: the palace is meant to be a picture of your life that grows with it. Fixed 
 - Low-wall rules stay: a wall is full height only where no cell neighbours it, so it's an outer wall; otherwise it's low. Focus still raises a room's back walls.
 - The ethereal room is drawn in the canvas (outline, translucent floor, name pill). Its buttons are HTML over the canvas, like the labels.
 
+## Changed while planning
+
+See "Rulings made while planning" in `docs/superpowers/plans/2026-11-16-dynamic-rooms.md`. In short: kept progress is stored as two high-water marks per room (same unlocks as a per-step table); a signature step the model leaves empty gives nothing (the base ladder has no item there); there is no `npm run import:areas` (only the in-app "Find my rooms"); the eval keeps room accuracy against fixture rooms and adds area agreement.
+
 ## Left to the builder
 
 - Spiral order details and the hallway tile algorithm, within "grid cells 2 tiles apart; nothing moves once placed".
