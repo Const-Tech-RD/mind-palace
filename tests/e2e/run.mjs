@@ -1119,7 +1119,7 @@ async function sessionPalace() {
       await nato.waitFor({ timeout: 5_000 })
       const where = await nato.getAttribute('alt')
       for (const name of [/^New chat$/, /^\d+ reminders?$/, /^\d+ active projects?$/]) {
-        expect((await stage.getByRole('button', { name }).count()) === 1, `the atrium has no ${name} shortcut`)
+        expect((await page.getByTestId('palace-shortcuts').getByRole('button', { name }).count()) === 1, `the palace has no ${name} shortcut`)
       }
       const label = await stage.getByRole('button', { name: /^Music studio: 21-day streak/ }).count()
       expect(label === 1, 'the Music studio did not show its 21-day streak')
@@ -1243,7 +1243,7 @@ async function sessionPalace() {
       await roomTab('All rooms').click()
       await settled()
       const stage = page.getByTestId('palace-stage')
-      await stage.getByRole('button', { name: /^\d+ reminders?$/ }).click()
+      await page.getByTestId('palace-shortcuts').getByRole('button', { name: /^\d+ reminders?$/ }).click()
       const card = page.getByTestId('room-panel')
       await card.getByText('No reminder is waiting.').waitFor({ timeout: 5_000 })
       await page.keyboard.press('Escape')

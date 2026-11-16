@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
-import { DOORWAY, HALL_TILES, iso, LOBBY, PAINTED_WALL, PALACE_TILES, TILE, ROOM_ORIGIN, roomAt, tileAt, WALL_FULL, WALL_LOW } from '../src/shared/floor'
+import { CARPET_HALF, DOORWAY, HALL_TILES, iso, LOBBY, PAINTED_WALL, PALACE_TILES, walkways, wayOut, TILE, ROOM_ORIGIN, roomAt, tileAt, WALL_FULL, WALL_LOW } from '../src/shared/floor'
 import type { Placement } from '../src/shared/placements'
 import { buildPalace } from '../src/shared/palace'
 import { addDays } from './shared'
@@ -194,3 +194,46 @@ describe('focus, placements and decay on the floor', () => {
   })
 })
 
+
+describe('the walkways', () => {
+  const rooms = Object.entries(ROOM_ORIGIN).map(([id, origin]) => ({ id, origin }))
+  const walk = walkways(rooms)
+  const inside = (r: { x: number; y: number; w: number; d: number }, [x, y]: readonly [number, number]): boolean =>
+    x >= r.x - 1e-9 && x <= r.x + r.w + 1e-9 && y >= r.y - 1e-9 && y <= r.y + r.d + 1e-9
+
+  it('give every room a mat that starts at its hallway side and ends on the carpet', () => {
+    expect(walk.mats.map((m) => m.roomId).sort()).toEqual(['art', 'coding', 'mailroom', 'music'])
+    for (const mat of walk.mats) {
+      const [, turn] = wayOut(ROOM_ORIGIN[mat.roomId]!)
+      expect(inside(mat, turn)).toBe(true)
+      expect(walk.runners.some((runner) => inside(runner, turn))).toBe(true)
+      expect(roomAt(mat.x + mat.w / 2, mat.y + mat.d / 2)).toBeNull() // on the hallway, not inside a room
+      expect(Math.min(mat.w, mat.d)).toBe(CARPET_HALF * 2)
+    }
+  })
+
+  it('carry the carpet along both hallways and through the lobby', () => {
+    expect(walk.runners).toHaveLength(2)
+    for (const runner of walk.runners) {
+      expect(inside(runner, [LOBBY, LOBBY])).toBe(true)
+      expect(roomAt(runner.x + runner.w / 2, runner.y + runner.d / 2)).toBeNull()
+    }
+  })
+
+  it('put a plaza with four lanterns where the hallways cross', () => {
+    expect(inside(walk.plaza, [LOBBY, LOBBY])).toBe(true)
+    expect(walk.plaza.w).toBe(walk.plaza.d)
+    expect(walk.plaza.w).toBeLessThan(HALL_TILES)
+    expect(walk.lanterns).toHaveLength(4)
+    for (const [x, y] of walk.lanterns) expect(roomAt(x, y)).toBeNull()
+  })
+
+  it('are on the route the character walks: out of a room, along the hallway, to the lobby', () => {
+    for (const origin of Object.values(ROOM_ORIGIN)) {
+      const [edge, turn] = wayOut(origin)
+      expect(roomAt(edge[0], edge[1])).not.toBeNull() // he starts just inside his room
+      expect(roomAt(turn[0], turn[1])).toBeNull()
+      expect(turn[0] === LOBBY || turn[1] === LOBBY).toBe(true)
+    }
+  })
+})

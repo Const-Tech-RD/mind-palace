@@ -119,6 +119,8 @@ export interface FloorView {
   rooms: FloorRoom[]
   /** The two hallways, as rectangles of tiles; they cross in the lobby. */
   halls: Array<{ x: number; y: number; w: number; d: number }>
+  /** Where the character walks between rooms: carpet, entrance mats and the plaza in the lobby. */
+  walk: Walkways
   /** The slot layout shared by every room, in room tiles: the room editor hit-tests clicks against it. */
   slots: Rules['layout']['slots']
   /** Screen box of the whole floor including full-height walls, in logical pixels. */
@@ -295,6 +297,7 @@ export function buildFloor(
     tiles: PALACE_TILES,
     rooms: floorRooms,
     slots: catalog.rules.layout.slots,
+    walk: walkways(floorRooms),
     halls: [
       { x: ROOM_TILES, y: 0, w: HALL_TILES, d: PALACE_TILES },
       { x: 0, y: ROOM_TILES, w: PALACE_TILES, d: HALL_TILES }
@@ -305,6 +308,76 @@ export function buildFloor(
       minY: Math.min(...corners.map((c) => c.y)),
       maxY: Math.max(...corners.map((c) => c.y))
     }
+  }
+}
+
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  d: number
+}
+
+export interface Walkways {
+  /** The carpet along the middle of each hallway, as far as the outermost room entrance. */
+  runners: Rect[]
+  /** A mat from each room's hallway side to the carpet, in that room's colour. */
+  mats: Array<Rect & { roomId: string }>
+  /** The square in the lobby where the hallways cross. */
+  plaza: Rect
+  /** A lantern at each corner of the plaza. */
+  lanterns: Array<readonly [number, number]>
+}
+
+/** Half the width of the carpet and of a room's mat, in tiles. */
+export const CARPET_HALF = 1
+const PLAZA_HALF = 2.5
+
+/**
+ * The way out of a room: the point on its hallway side where the character
+ * leaves, then the point on the hallway's middle line he walks to before
+ * turning towards the lobby. The walkways are drawn along exactly these.
+ */
+export function wayOut(origin: readonly [number, number]): [[number, number], [number, number]] {
+  const [ox, oy] = origin
+  // Rooms on the left edge leave through their right-hand side; the others through the side facing the lobby.
+  if (ox === 0) return [[ox + ROOM_TILES - 0.4, oy + 4], [LOBBY, oy + 4]]
+  return [[ox + 4, oy === 0 ? oy + ROOM_TILES - 0.4 : oy + 0.4], [ox + 4, LOBBY]]
+}
+
+export function walkways(rooms: ReadonlyArray<{ id: string; origin: readonly [number, number] }>): Walkways {
+  const mats: Walkways['mats'] = []
+  // How far each hallway's carpet has to reach along its own line.
+  let alongY: [number, number] = [LOBBY, LOBBY]
+  let alongX: [number, number] = [LOBBY, LOBBY]
+  for (const room of rooms) {
+    const [edge, turn] = wayOut(room.origin)
+    if (edge[1] === turn[1]) {
+      // Leaves sideways: the mat runs along x and meets the hallway that runs along y.
+      const from = Math.min(Math.round(edge[0]), turn[0])
+      mats.push({ roomId: room.id, x: from, y: edge[1] - CARPET_HALF, w: Math.abs(turn[0] - Math.round(edge[0])), d: CARPET_HALF * 2 })
+      alongY = [Math.min(alongY[0], edge[1] - CARPET_HALF), Math.max(alongY[1], edge[1] + CARPET_HALF)]
+    } else {
+      const from = Math.min(Math.round(edge[1]), turn[1])
+      mats.push({ roomId: room.id, x: edge[0] - CARPET_HALF, y: from, w: CARPET_HALF * 2, d: Math.abs(turn[1] - Math.round(edge[1])) })
+      alongX = [Math.min(alongX[0], edge[0] - CARPET_HALF), Math.max(alongX[1], edge[0] + CARPET_HALF)]
+    }
+  }
+  const runners: Rect[] = []
+  if (alongY[1] > alongY[0]) runners.push({ x: LOBBY - CARPET_HALF, y: alongY[0], w: CARPET_HALF * 2, d: alongY[1] - alongY[0] })
+  if (alongX[1] > alongX[0]) runners.push({ x: alongX[0], y: LOBBY - CARPET_HALF, w: alongX[1] - alongX[0], d: CARPET_HALF * 2 })
+  const p = LOBBY - PLAZA_HALF
+  const q = LOBBY + PLAZA_HALF
+  return {
+    runners,
+    mats,
+    plaza: { x: p, y: p, w: PLAZA_HALF * 2, d: PLAZA_HALF * 2 },
+    lanterns: [
+      [p, p],
+      [q, p],
+      [q, q],
+      [p, q]
+    ]
   }
 }
 

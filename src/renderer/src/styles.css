@@ -51,6 +51,12 @@
   --mp-dark: #0b0706;
   --mp-dust: #cbb89a;
   --mp-cobweb: #d8d2c4;
+  /* Where the character walks: hallway boards, their brass edge, the carpet, the plaza and its lanterns. */
+  --mp-walk-floor: #46301f;
+  --mp-walk-edge: #b58956;
+  --mp-walk-carpet: #7a2a22;
+  --mp-walk-plaza: #5b3f29;
+  --mp-walk-lantern: #f8d077;
   --mp-room-coding: #5eead4;
   --mp-room-music: #f0abfc;
   --mp-room-art: #fb923c;

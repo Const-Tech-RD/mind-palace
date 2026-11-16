@@ -34,7 +34,12 @@ const PALETTE_TOKENS = {
   success: '--mp-success',
   dark: '--mp-dark',
   dust: '--mp-dust',
-  cobweb: '--mp-cobweb'
+  cobweb: '--mp-cobweb',
+  walkFloor: '--mp-walk-floor',
+  walkEdge: '--mp-walk-edge',
+  carpet: '--mp-walk-carpet',
+  plaza: '--mp-walk-plaza',
+  lantern: '--mp-walk-lantern'
 } as const
 
 export type Palette = Record<keyof typeof PALETTE_TOKENS, number>

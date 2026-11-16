@@ -309,6 +309,42 @@ export function PalaceView() {
             )
           })}
         </nav>
+        {!room && palace && (
+          <div className="ml-auto flex shrink-0 gap-1.5" data-testid="palace-shortcuts">
+          <button
+            type="button"
+            onClick={() => void selectChat(null)}
+            className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-ink shadow hover:bg-brass-light"
+          >
+            New chat
+          </button>
+          <button
+            type="button"
+            onClick={() => chooseMode(mode === 'scene' ? 'list' : 'scene')}
+            aria-pressed={mode === 'list'}
+            className="rounded-full border border-brass/50 bg-walnut/90 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
+          >
+            {mode === 'scene' ? 'List view' : 'Map view'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPanel(panel?.hotspot.id === REMINDERS_CARD.id ? null : { roomId: null, hotspot: REMINDERS_CARD })}
+            aria-expanded={panel?.hotspot.id === REMINDERS_CARD.id}
+            className={`rounded-full border px-3 py-1.5 text-xs shadow backdrop-blur ${
+              reminders > 0 ? 'reminder-waiting border-gold bg-walnut/85 text-gold hover:bg-raised' : 'border-brass/50 bg-walnut/85 text-paper hover:bg-raised'
+            }`}
+          >
+            {reminders} reminder{reminders === 1 ? '' : 's'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void showProjects()}
+            className="rounded-full border border-brass/50 bg-walnut/85 px-3 py-1.5 text-xs text-paper shadow backdrop-blur hover:bg-raised"
+          >
+            {activeProjects} active project{activeProjects === 1 ? '' : 's'}
+          </button>
+        </div>
+        )}
       </header>
       <div className="@container min-h-0 flex-1 overflow-y-auto">
         {appError && (
@@ -412,43 +448,6 @@ export function PalaceView() {
                       </button>
                     )
                   })}
-
-                {!room && (
-                  <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => void selectChat(null)}
-                      className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-ink shadow hover:bg-brass-light"
-                    >
-                      New chat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => chooseMode(mode === 'scene' ? 'list' : 'scene')}
-                      aria-pressed={mode === 'list'}
-                      className="rounded-full border border-brass/50 bg-walnut/90 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
-                    >
-                      {mode === 'scene' ? 'List view' : 'Map view'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPanel(panel?.hotspot.id === REMINDERS_CARD.id ? null : { roomId: null, hotspot: REMINDERS_CARD })}
-                      aria-expanded={panel?.hotspot.id === REMINDERS_CARD.id}
-                      className={`rounded-full border px-3 py-1.5 text-xs shadow backdrop-blur ${
-                        reminders > 0 ? 'reminder-waiting border-gold bg-walnut/85 text-gold hover:bg-raised' : 'border-brass/50 bg-walnut/85 text-paper hover:bg-raised'
-                      }`}
-                    >
-                      {reminders} reminder{reminders === 1 ? '' : 's'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void showProjects()}
-                      className="rounded-full border border-brass/50 bg-walnut/85 px-3 py-1.5 text-xs text-paper shadow backdrop-blur hover:bg-raised"
-                    >
-                      {activeProjects} active project{activeProjects === 1 ? '' : 's'}
-                    </button>
-                  </div>
-                )}
 
                 {room && (
                   <>

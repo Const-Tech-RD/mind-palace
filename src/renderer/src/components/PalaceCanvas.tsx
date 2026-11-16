@@ -4,7 +4,7 @@ import 'pixi.js/unsafe-eval'
 import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
-import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
+import { iso, LOBBY as LOBBY_AT, wayOut as wayOutOf, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall, type Rect } from '@shared/floor'
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
@@ -159,6 +159,48 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
   return cast
 }
 
+const diamond = (r: Rect, z = 0): number[] => pts([iso(r.x, r.y, z), iso(r.x + r.w, r.y, z), iso(r.x + r.w, r.y + r.d, z), iso(r.x, r.y + r.d, z)])
+const inset = (r: Rect, by: number): Rect => ({ x: r.x + by, y: r.y + by, w: r.w - by * 2, d: r.d - by * 2 })
+
+/**
+ * Where the character walks: boarded hallways with a brass edge, a carpet down
+ * the middle of each, a mat in each room's colour at its entrance, and a
+ * lantern-lit plaza where they cross.
+ */
+function drawWalkways(g: Graphics, floor: FloorView, accents: Readonly<Record<string, number>>): void {
+  for (const hall of floor.halls) {
+    drawFloor(g, hall.x, hall.y, hall.w, hall.d, P.walkFloor)
+    g.poly(diamond(hall)).stroke({ color: P.walkEdge, width: 1.5, alpha: 0.45 })
+  }
+  const { runners, mats, plaza, lanterns } = floor.walk
+  const carpet = (r: Rect, colour: number): void => {
+    g.poly(diamond(r)).fill(colour).stroke({ color: P.outline, width: 1, alpha: 0.7 })
+    g.poly(diamond(inset(r, 0.18))).stroke({ color: P.gold, width: 1, alpha: 0.55 })
+  }
+  for (const mat of mats) carpet(mat, mix(P.carpet, accents[mat.roomId] ?? P.carpet, 0.45))
+  for (const runner of runners) carpet(runner, P.carpet)
+  // The plaza: a square of paler boards with a round rug of rings.
+  g.poly(diamond(plaza)).fill(P.plaza).stroke({ color: P.walkEdge, width: 2, alpha: 0.8 })
+  const centre = iso(plaza.x + plaza.w / 2, plaza.y + plaza.d / 2)
+  for (const [radius, colour, alpha] of [
+    [70, P.carpet, 1],
+    [56, P.gold, 0.5],
+    [50, P.carpet, 1],
+    [26, P.gold, 0.35]
+  ] as const) {
+    g.ellipse(centre.x, centre.y, radius, radius / 2).fill({ color: colour, alpha })
+  }
+  for (const [x, y] of lanterns) {
+    const foot = iso(x, y)
+    const top = iso(x, y, 1.5)
+    g.ellipse(foot.x, foot.y, 34, 17).fill({ color: P.lantern, alpha: 0.1 })
+    g.ellipse(foot.x, foot.y, 16, 8).fill({ color: P.lantern, alpha: 0.14 })
+    g.moveTo(foot.x, foot.y).lineTo(top.x, top.y).stroke({ color: P.walkEdge, width: 3 })
+    g.circle(top.x, top.y, 9).fill({ color: P.lantern, alpha: 0.25 })
+    g.circle(top.x, top.y, 4.5).fill(P.lantern).stroke({ color: P.outline, width: 1 })
+  }
+}
+
 /** Small deterministic noise per room, so dust and cobwebs do not jump on every redraw. */
 function seeded(seed: string): () => number {
   let h = 2166136261
@@ -246,15 +288,41 @@ async function loadTexture(url: string): Promise<Texture> {
   return Texture.from({ resource: image, autoGenerateMipmaps: true })
 }
 
+/**
+ * The front room's painting with the top of its back corner dissolved away.
+ * On the map that corner stands in front of the lobby; opened up, the plaza
+ * and whoever is walking across it show through. The room itself is drawn
+ * whole as soon as it is opened.
+ */
+async function loadOpenedTexture(url: string, cut: { anchorX: number; scale: number; floor: readonly (readonly [number, number])[] }): Promise<Texture> {
+  const image = new Image()
+  image.src = url
+  await image.decode()
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth
+  canvas.height = image.naturalHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return Texture.from({ resource: image, autoGenerateMipmaps: true })
+  ctx.drawImage(image, 0, 0)
+  const apexX = cut.anchorX + cut.floor[0]![0] * cut.scale
+  const radius = OPENING_RADIUS * cut.scale
+  const hole = ctx.createRadialGradient(apexX, radius * 0.12, 0, apexX, radius * 0.12, radius)
+  hole.addColorStop(0, 'rgb(0 0 0 / 1)')
+  hole.addColorStop(0.6, 'rgb(0 0 0 / 1)')
+  hole.addColorStop(1, 'rgb(0 0 0 / 0)')
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.fillStyle = hole
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  return Texture.from({ resource: canvas, autoGenerateMipmaps: true })
+}
+/** How far the opening reaches from the top of the front room's back corner, in logical pixels. */
+const OPENING_RADIUS = 150
+
 /** Where Nato stands in a room, and the way out of it towards the lobby, in room tiles. */
 const STAND: readonly [number, number] = [4.5, 5.6]
 const LOBBY: readonly [number, number] = [LOBBY_AT, LOBBY_AT]
-function wayOut(origin: readonly [number, number]): Array<[number, number]> {
-  const [ox, oy] = origin
-  // Leave by the side that faces a hallway, then follow the hallway to the lobby.
-  if (ox === 0) return [[ox + 7.6, oy + 4], [LOBBY_AT, oy + 4]]
-  return [[ox + 4, oy === 0 ? oy + 7.6 : oy + 0.4], [ox + 4, LOBBY_AT]]
-}
+/** The way out of a room, as the floor model defines it: the walkways are drawn along the same points. */
+const wayOut = (origin: readonly [number, number]): Array<[number, number]> => wayOutOf(origin)
 /** In a painted room he stands on a free spot of its painted floor. */
 function standIn(roomId: string | undefined, painted: boolean): readonly [number, number] {
   return (painted && roomId && ROOM_CUT[roomId]?.nato) || STAND
@@ -266,7 +334,7 @@ function route(from: readonly [number, number] | null, to: readonly [number, num
 }
 
 /** Where the lobby's centrepiece stands (towards the back, clear of the front room's walls) and how wide it is drawn. */
-const LOBBY_SPOT = 9.2
+const LOBBY_SPOT = LOBBY_AT
 const LOBBY_WIDTH = 104
 const WALK_SPEED = 7 // tiles per second
 const STROLL_SPEED = 1.6
@@ -336,7 +404,7 @@ export function PalaceCanvas({
     world: Container
     rooms: Container
     nato: Sprite | null
-    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture> } | null
+    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture>; opened: Record<string, Texture> } | null
   } | null>(null)
   const camera = useRef<{ now: Camera; goal: Camera; free: boolean }>({ now: { scale: 1, x: 0, y: 0 }, goal: { scale: 1, x: 0, y: 0 }, free: false })
   const walk = useRef<{
@@ -406,7 +474,16 @@ export function PalaceCanvas({
         sit: await loadTexture(NATO_FRAMES.sit),
         helpers: Object.fromEntries(helperTextures),
         lobby: await loadTexture(LOBBY_SPRITE.url),
-        rooms: Object.fromEntries(await Promise.all(Object.entries(ROOM_CUT).map(async ([id, cut]) => [id, await loadTexture(cut.url)] as const)))
+        rooms: Object.fromEntries(await Promise.all(Object.entries(ROOM_CUT).map(async ([id, cut]) => [id, await loadTexture(cut.url)] as const))),
+        // Only the front-most room stands in front of the lobby.
+        opened: Object.fromEntries(
+          await Promise.all(
+            latest.current.floor.rooms.slice(-1).flatMap((room) => {
+              const cut = ROOM_CUT[room.id]
+              return cut ? [loadOpenedTexture(cut.url, cut).then((texture) => [room.id, texture] as const)] : []
+            })
+          )
+        )
       }
       const standing = textures.walk[3]!
       if (cancelled) return
@@ -501,7 +578,11 @@ export function PalaceCanvas({
             latest.current.floor.rooms.map((room) => {
               const cut = isPainted(room.id) ? ROOM_CUT[room.id] : undefined
               const tall = cut ? -cut.top / 32 : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
-              const at = iso(room.origin[0], room.origin[1], tall - 0.6)
+              const corner = iso(room.origin[0], room.origin[1], tall - 0.6)
+              // The front room's corner is opened up on the map; its label moves onto its left wall, clear of the lobby.
+              const rooms = latest.current.floor.rooms
+              const opened = cut !== undefined && latest.current.focus === null && room === rooms[rooms.length - 1]
+              const at = opened ? { x: corner.x - 200, y: corner.y + 104 } : corner
               return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
             })
           )
@@ -525,7 +606,7 @@ export function PalaceCanvas({
     if (!ready || !s || !s.textures) return
     const halls = s.world.children[0] as Graphics
     halls.clear()
-    for (const hall of floor.halls) drawFloor(halls, hall.x, hall.y, hall.w, hall.d, P.hallway)
+    drawWalkways(halls, floor, Object.fromEntries(floor.rooms.map((r) => [r.id, accentOf(r)])))
     for (const old of s.rooms.removeChildren()) old.destroy({ children: true })
     helpers.current = []
     const frontMost = floor.rooms[floor.rooms.length - 1]
@@ -534,7 +615,7 @@ export function PalaceCanvas({
         // The lobby's centrepiece stands in front of the back rooms and behind the front one.
         const piece = new Sprite(s.textures.lobby)
         const at = iso(LOBBY_SPOT, LOBBY_SPOT)
-        piece.anchor.set(0.42, 0.9)
+        piece.anchor.set(0.42, 0.78)
         piece.scale.set(LOBBY_WIDTH / LOBBY_SPRITE.width)
         piece.position.set(at.x, at.y)
         piece.alpha = focus !== null ? 0.16 : 1
@@ -545,7 +626,9 @@ export function PalaceCanvas({
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
       const painted = ROOM_CUT[room.id] !== undefined && arranging !== room.id
-      const cast = drawRoom(layer, room, hover === room.id && focus !== room.id, focus === room.id, painted ? s.textures.rooms[room.id] : undefined)
+      // On the map the front room is drawn opened up, so the lobby behind its corner shows.
+      const picture = painted ? ((focus === null && s.textures.opened[room.id]) || s.textures.rooms[room.id]) : undefined
+      const cast = drawRoom(layer, room, hover === room.id && focus !== room.id, focus === room.id, picture)
       drawDecay(layer, room, painted)
       if (focus === room.id && highlights && highlights.length > 0) drawTargets(layer, room, floor.slots, highlights)
       const before = decayLevels.current.get(room.id)

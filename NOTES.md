@@ -526,3 +526,13 @@ Nato reported the rooms looked bent and pixelated. Two causes, both mine:
 - The spots for Nato, the helpers and the clickable things were converted to the new cut-outs by composing the old and new transforms, then checked on screenshots.
 
 Verified: typecheck, 334 unit tests, E2E S5 9/9, the editor check 4/4, screenshots of the map and a room on a 2x display. Not verified on a 1x display.
+
+## The spaces between the rooms (2026-11-16)
+
+Nato asked for the places the avatar walks to be designed, and for a tidier map.
+
+- **Walkways** (`walkways()` and `wayOut()` in `floor.ts`, pure and tested): boarded hallways with a brass edge; a carpet down the middle of each, reaching as far as the outermost room entrance; a mat in each room's colour from its hallway side to the carpet; a plaza with a round rug and four lanterns where the hallways cross. They are drawn along the same points the character's route uses, so he walks on them. Colours are new `--mp-walk-*` tokens.
+- **The lobby is visible.** On the map the front room (Mail room) stands in front of the lobby. Its painting is now drawn with the top of its back corner dissolved away (`loadOpenedTexture`), so the plaza and its centrepiece show through. The room is drawn whole as soon as it is opened. Its label moved onto its left wall.
+- **The map's buttons** (New chat, List view, reminders, active projects) moved from over the map to the Palace header, where they no longer cover the Coding room's label.
+
+Verified: typecheck, 338 unit tests (4 new for the walkways), E2E S5 9/9, the editor check 4/4, a screenshot of the map. Not verified: S1 to S4 after this change; how the opened corner looks while the Mail room is in decay.
