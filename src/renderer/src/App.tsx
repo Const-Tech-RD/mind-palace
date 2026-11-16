@@ -4,6 +4,7 @@ import { ChatView } from './components/ChatView'
 import { Login } from './components/Login'
 import { PalaceView } from './components/PalaceView'
 import { ProjectsView } from './components/ProjectsView'
+import { ProjectPage } from './components/project/ProjectPage'
 import { RemindersView } from './components/RemindersView'
 import { Sidebar } from './components/Sidebar'
 import { useStore } from './store'
@@ -46,6 +47,8 @@ export function App() {
       <Sidebar />
       {view === 'projects' ? (
         <ProjectsView />
+      ) : view === 'project' ? (
+        <ProjectPage />
       ) : view === 'reminders' ? (
         <RemindersView />
       ) : (

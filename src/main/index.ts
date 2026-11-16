@@ -269,6 +269,7 @@ function start(): void {
   handle('progress:refresh', ({ projectId }) => progressService.refresh(projectId))
   handle('progress:edit', ({ projectId, edit }) => progressService.edit(projectId, edit))
   handle('progress:answer', ({ proposalId, accept }) => progressService.answer(proposalId, accept))
+  handle('progress:git', ({ projectId }) => progressService.gitInfo(projectId))
   handle('progress:folder', async ({ projectId, folder }) => {
     if (folder !== 'pick') return progressService.setFolder(projectId, folder)
     const window = getMainWindow()

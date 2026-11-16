@@ -1,127 +1,144 @@
-import { useMemo, useState } from 'react'
+/** The projects list as compact rows (docs/mockups/project-card/compact.html); a row opens the project page. */
+import { useEffect, useMemo, useState } from 'react'
+import { localDayOf, type LocalDay } from '@shared/engine'
+import { progressOf, type ProjectProgress } from '@shared/milestones'
+import { nextMilestone, quietWeekdays, reviewItems, sortForList, statusOf, type ProjectStatus } from '@shared/projectPage'
+import type { ProjectSummary } from '@shared/projects'
 import { accentCss } from '../theme'
-import {
-  ACTIONS_BY_STATE,
-  PROJECT_ACTION_LABEL,
-  PROJECT_STATE_LABEL,
-  PROJECT_STATE_ORDER,
-  type ProjectSummary
-} from '@shared/projects'
 import { useStore } from '../store'
-import { ProjectProgress } from './ProjectProgress'
+import { Bar, StatusPill } from './project/parts'
 
-const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-const day = (iso: string | null): string | null => (iso ? dateFormat.format(new Date(iso)) : null)
+const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-function ProjectCard({ project }: { project: ProjectSummary }) {
-  const room = useStore((s) => s.status?.rooms.find((r) => r.id === project.roomId))
-  const projectAction = useStore((s) => s.projectAction)
-  const selectChat = useStore((s) => s.selectChat)
-  const snoozed = project.snoozedUntil !== null && new Date(project.snoozedUntil) > new Date()
-  const closed = project.state === 'done' || project.state === 'dropped'
-  const [showProgress, setShowProgress] = useState(false)
-
+/** One project as a row: accent, title, status, progress, what's next and what's waiting for review. */
+export function ProjectRow({
+  title,
+  accent,
+  status,
+  progress,
+  nextTitle,
+  toReview,
+  quietNote,
+  onOpen
+}: {
+  title: string
+  accent: string
+  status: ProjectStatus
+  progress: { done: number; total: number } | null
+  nextTitle: string | null
+  toReview: number
+  quietNote: string | null
+  onOpen: () => void
+}) {
+  const quiet = status.kind === 'quiet' && status.weekdays > 0
+  const held = status.kind === 'snoozed' || status.kind === 'paused'
   return (
-    <li className="rounded-lg bg-ink-soft p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="min-w-0 flex-1 truncate font-medium">{project.title}</h3>
-        {room && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-paper/10 px-2.5 py-0.5 text-xs">
-            <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(room.accent) }} />
-            {room.name}
-          </span>
-        )}
-      </div>
-      {project.nextStep && !closed && <p className="mt-1 text-sm text-paper/90">Next step: {project.nextStep}</p>}
-      <p className="mt-1 text-xs text-muted">
-        {[
-          closed && project.closedAt ? `Closed ${day(project.closedAt)}` : null,
-          !closed && project.lastActivityAt ? `Last activity ${day(project.lastActivityAt)}` : null,
-          snoozed ? `Snoozed until ${day(project.snoozedUntil)}` : null,
-          `${project.chatIds.length} chat${project.chatIds.length === 1 ? '' : 's'}`
-        ]
-          .filter(Boolean)
-          .join(' · ')}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {ACTIONS_BY_STATE[project.state].map((action) => (
-          <button
-            key={action}
-            type="button"
-            onClick={() => void projectAction(project.id, action)}
-            className={`rounded-md px-3 py-1 text-sm ${
-              action === 'done' || action === 'reopen'
-                ? 'bg-gold font-medium text-ink hover:bg-brass-light'
-                : 'bg-paper/10 text-paper hover:bg-paper/20'
-            }`}
-          >
-            {PROJECT_ACTION_LABEL[action]}
-          </button>
-        ))}
-        {project.chatIds[0] && (
-          <button
-            type="button"
-            onClick={() => void selectChat(project.chatIds[0]!)}
-            className="rounded-md px-3 py-1 text-sm text-paper/80 hover:bg-paper/10"
-          >
-            Open chat
-          </button>
-        )}
-        <button
-          type="button"
-          aria-expanded={showProgress}
-          onClick={() => setShowProgress((open) => !open)}
-          className="rounded-md px-3 py-1 text-sm text-paper/80 hover:bg-paper/10"
-        >
-          {showProgress ? 'Hide progress' : 'Progress'}
-        </button>
-      </div>
-      {showProgress && <ProjectProgress projectId={project.id} />}
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open ${title}`}
+        className={`flex w-full flex-col gap-2.5 rounded-2xl border bg-ink-soft px-4.5 py-4 text-left hover:bg-raised/60 ${quiet ? 'border-gold-deep' : 'border-transparent'}`}
+        data-project-row={title}
+      >
+        <span className="flex w-full items-center gap-2.5">
+          <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ backgroundColor: accent }} />
+          <span className="min-w-0 flex-1 truncate font-heading text-lg font-medium">{title}</span>
+          <StatusPill status={status} small />
+        </span>
+        <span className="flex w-full">
+          {progress ? <Bar done={progress.done} total={progress.total} label={`${progress.done} of ${progress.total} milestones done`} muted={held} /> : <span className="text-[13px] text-muted">No milestones yet</span>}
+        </span>
+        <span className="flex w-full justify-between gap-3 text-[13px] text-muted">
+          <span className="min-w-0 truncate">{status.kind === 'snoozed' ? 'Not counted toward decay while snoozed' : nextTitle ? `Next: ${nextTitle}` : (quietNote ?? '')}</span>
+          {toReview > 0 && <span className="shrink-0 whitespace-nowrap text-gold">{toReview} to review</span>}
+        </span>
+      </button>
     </li>
   )
 }
 
 export function ProjectsView() {
   const projects = useStore((s) => s.projects)
+  const rooms = useStore((s) => s.status?.rooms)
+  const progress = useStore((s) => s.progress)
   const appError = useStore((s) => s.appError)
+  const loadProgress = useStore((s) => s.loadProgress)
+  const showProject = useStore((s) => s.showProject)
+  const [showHidden, setShowHidden] = useState(false)
 
-  const byState = useMemo(
-    () =>
-      PROJECT_STATE_ORDER.map((state) => ({ state, items: projects.filter((p) => p.state === state) })).filter(
-        (group) => group.items.length > 0
-      ),
-    [projects]
-  )
+  // Rows show each project's milestones: load the ones not loaded yet.
+  useEffect(() => {
+    for (const p of projects) if (!progress[p.id]) void loadProgress(p.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, loadProgress])
+
+  const now = useMemo(() => new Date(), [projects])
+  const today: LocalDay = localDayOf(now, zone)
+  const rows = useMemo(() => {
+    const listed = projects.map((p: ProjectSummary) => {
+      const lastDay = p.lastActivityAt ? localDayOf(p.lastActivityAt, zone) : null
+      const snoozed = p.snoozedUntil !== null && Date.parse(p.snoozedUntil) > now.getTime()
+      return { ...p, quietWeekdays: p.state === 'active' ? quietWeekdays(lastDay, today) : 0, snoozed, lastDay }
+    })
+    return sortForList(listed)
+  }, [projects, now, today])
+
+  const row = (p: (typeof rows.shown)[number]) => {
+    const pr: ProjectProgress | undefined = progress[p.id]
+    const milestones = pr?.milestones ?? []
+    const room = rooms?.find((r) => r.id === p.roomId)
+    return (
+      <ProjectRow
+        key={p.id}
+        title={p.title}
+        accent={accentCss(room?.accent ?? 'mp-room-mailroom')}
+        status={statusOf({ state: p.state, lastActivityDay: p.lastDay, snoozedUntil: p.snoozedUntil }, today, now)}
+        progress={progressOf(milestones)}
+        nextTitle={nextMilestone(milestones)?.title ?? null}
+        toReview={reviewItems(milestones).length}
+        quietNote={p.state === 'active' && p.lastDay === today ? 'Active today' : null}
+        onOpen={() => void showProject(p.id)}
+      />
+    )
+  }
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col">
+    <section className="flex h-full min-w-0 flex-1 flex-col bg-walnut">
       <header className="flex h-12 shrink-0 items-center border-b border-brass/25 px-5">
         <h1 className="text-sm font-medium">Projects</h1>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 px-5 py-6">
+        <div className="mx-auto flex max-w-[640px] flex-col gap-3.5 px-5 py-7">
           {appError && (
-            <p role="alert" className="rounded-md bg-red-950 px-3 py-2 text-sm text-red-200">
+            <p role="alert" className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">
               {appError}
             </p>
           )}
-          {byState.length === 0 && (
-            <p className="mt-24 text-center text-sm text-muted">
-              No projects yet. When a chat looks like the start of one, it will offer to track it.
-            </p>
+          {projects.length === 0 ? (
+            <p className="mt-24 text-center text-sm text-muted">No projects yet. When a chat looks like the start of one, it will offer to track it.</p>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between">
+                <h2 className="m-0 font-heading text-[22px] font-medium">Projects</h2>
+                <span className="text-[13px] text-muted">Quiet first</span>
+              </div>
+              <ul className="m-0 flex list-none flex-col gap-3.5 p-0">{rows.shown.map(row)}</ul>
+              {rows.hidden.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    aria-expanded={showHidden}
+                    onClick={() => setShowHidden((v) => !v)}
+                    className="pp-line h-11 rounded-xl border border-dashed bg-transparent text-sm text-muted hover:text-paper"
+                  >
+                    {showHidden ? `Hide ${rows.hidden.length} done and paused` : `Show ${rows.hidden.length} done and paused`}
+                  </button>
+                  {showHidden && <ul className="m-0 flex list-none flex-col gap-3.5 p-0">{rows.hidden.map(row)}</ul>}
+                </>
+              )}
+            </>
           )}
-          {byState.map(({ state, items }) => (
-            <section key={state}>
-              <h2 className="mb-2 text-xs font-medium tracking-wide text-muted uppercase">
-                {PROJECT_STATE_LABEL[state]} · {items.length}
-              </h2>
-              <ul className="flex flex-col gap-3">
-                {items.map((project) => (
-                  <ProjectCard key={project.id} project={project} />
-                ))}
-              </ul>
-            </section>
-          ))}
         </div>
       </div>
     </section>

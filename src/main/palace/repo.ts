@@ -58,6 +58,7 @@ export function createPalaceRepo(db: Db) {
       snoozedUntil: row.snoozedUntil,
       createdAt: row.createdAt,
       closedAt: row.closedAt,
+      remindersSent: row.remindersSent,
       chatIds: chatIds.get(row.id) ?? []
     }))
   }

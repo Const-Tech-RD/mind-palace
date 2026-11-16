@@ -51,6 +51,8 @@ export type MilestoneEdit =
   | { kind: 'move'; id: string; toIndex: number }
   | { kind: 'add'; title: string; afterId: string | null }
   | { kind: 'delete'; id: string }
+  /** "Confirm" in the review banner: the person keeps a milestone only the chats backed. */
+  | { kind: 'confirm'; id: string }
 
 export interface EditContext {
   /** `YYYY-MM-DD` in the settings timezone. */
@@ -74,6 +76,16 @@ export interface ProjectProgress {
   sweptAt: string | null
   /** A build or refresh is running for this project. */
   running: boolean
+}
+
+/** The project folder's repo as it stands, read-only; null when the folder isn't a repo. */
+export interface GitInfo {
+  /** The checked-out branch, or the short hash when detached. */
+  branch: string
+  /** The newest commit touching the folder. */
+  lastCommit: { subject: string; day: string } | null
+  /** Changed and untracked files under the folder. */
+  uncommitted: number
 }
 
 /** A chat the sweep thinks belongs to a project, for the person to confirm. */
@@ -156,6 +168,8 @@ export function applyEdit(list: Milestone[], edit: MilestoneEdit, ctx: EditConte
       }
       return insertAfter(list, item, edit.afterId)
     }
+    case 'confirm':
+      return update(list, edit.id, (m) => ({ ...m, edited: true }))
     case 'delete': {
       const next = update(list, edit.id, (m) => ({ ...m, deletedAt: ctx.now, edited: true }))
       return renumber(next, ordered(next))

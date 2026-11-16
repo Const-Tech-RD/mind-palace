@@ -193,3 +193,10 @@ describe('draftRows (review fix: a new draft after deleting everything)', () => 
     expect(draftRows(drafted, l).map((d) => d.title)).toEqual(['Launch'])
   })
 })
+
+describe('confirm (the review banner)', () => {
+  it('marks a chat-backed done milestone as the person\'s, keeping its day and evidence', () => {
+    const l = [ms('a', 'Crops goals', { status: 'done', doneOn: '2026-11-06', evidence: 'chat', evidenceRef: 'cc-1' })]
+    expect(byId(applyEdit(l, { kind: 'confirm', id: 'a' }, ctx), 'a')).toMatchObject({ status: 'done', doneOn: '2026-11-06', evidence: 'chat', evidenceRef: 'cc-1', edited: true })
+  })
+})

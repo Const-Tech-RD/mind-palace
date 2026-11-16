@@ -15,6 +15,8 @@ export interface ProjectSummary {
   snoozedUntil: string | null
   createdAt: string
   closedAt: string | null
+  /** Reminders already counted since the last activity: where the reminder cadence stands. */
+  remindersSent: number
   /** Chats linked to the project, most recent first. */
   chatIds: string[]
 }

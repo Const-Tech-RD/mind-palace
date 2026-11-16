@@ -19,6 +19,7 @@ import {
   type Milestone,
   type MilestoneEdit,
   type ProjectProgress,
+  type GitInfo,
   type SweepCandidate
 } from '@shared/milestones'
 import {
@@ -47,7 +48,7 @@ import {
   type KnownEvidence
 } from '@shared/progressPrompts'
 import type { JsonAnswer } from '../chat/claude'
-import { gitRootOf, isSharedRoot, readEvidence, type Evidence } from './evidence'
+import { gitRootOf, isSharedRoot, readEvidence, readGitInfo, type Evidence } from './evidence'
 import type { ProgressRepo } from './repo'
 
 type AskModel = (prompt: string, system: string, schema: Record<string, unknown>) => Promise<JsonAnswer>
@@ -78,6 +79,8 @@ export function createProgressService(deps: ProgressServiceDeps) {
   const today = (): string => localDayOf(now(), deps.timeZone())
   const running = new Set<string>()
   const folderProblems = new Map<string, string | null>()
+  /** The folder's git info, read once and kept until the next build, refresh or folder change. */
+  const gitCache = new Map<string, { folder: string | null; info: GitInfo | null }>()
 
   const ctx = () => ({ today: today(), now: now().toISOString(), newId: () => randomUUID() })
 
@@ -185,6 +188,7 @@ export function createProgressService(deps: ProgressServiceDeps) {
     mustProject(projectId)
     if (running.has(projectId)) return get(projectId)
     running.add(projectId)
+    gitCache.delete(projectId)
     deps.onChanged(projectId)
     try {
       await work()
@@ -327,6 +331,16 @@ export function createProgressService(deps: ProgressServiceDeps) {
     },
 
     detectAndStoreFolder,
+
+    /** The folder's branch, last commit and uncommitted files; read once per refresh. Null without a folder or repo. */
+    async gitInfo(projectId: string): Promise<GitInfo | null> {
+      const folder = mustProject(projectId).folder
+      const cached = gitCache.get(projectId)
+      if (cached && cached.folder === folder) return cached.info
+      const info = folder ? await readGitInfo(folder) : null
+      gitCache.set(projectId, { folder, info })
+      return info
+    },
 
     /** A linked chat went quiet: projects that already have milestones get a refresh (proposals only). */
     afterChatQuiet(chatId: string): void {

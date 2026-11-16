@@ -88,9 +88,9 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => void showProjects()}
-          aria-current={view === 'projects' ? 'page' : undefined}
+          aria-current={view === 'projects' || view === 'project' ? 'page' : undefined}
           title={open ? undefined : 'Projects'}
-          className={item(view === 'projects')}
+          className={item(view === 'projects' || view === 'project')}
         >
           {ICONS.projects}
           {label('Projects')}
