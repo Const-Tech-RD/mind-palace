@@ -6,11 +6,14 @@ rooms, streaks and projects show real history.
     python3 scripts/import-into-app.py --apply    # backs up the database, then imports
 
 Reads import/sessions.jsonl (scripts/extract-claude-code.py), import/labels.jsonl
-(room and project per session) and, if present, import/project-states.json
-({"Project name": "active" | "paused" | "done" | "dropped"}).
+(project per session; any room in it is ignored) and, if present,
+import/project-states.json ({"Project name": "active" | "paused" | "done" | "dropped"}).
 
-- Each session becomes one chat, holding only what the person typed, with the
-  real timestamps. Answers are not imported.
+- Each session becomes one chat in the Mail room, holding only what the person
+  typed, with the real timestamps. Answers are not imported. Rooms are made
+  later in the app: "Find my rooms" sorts the chats into areas of life, and
+  each area with 3 or more chats is offered as a room to materialise.
+- Chats are stamped as classified, so the app does not re-classify each one.
 - Sessions that share a project name become one tracked project.
 - Running it again replaces what it imported before; chats made in the app are
   never touched (imported rows have ids starting with "cc-" / "ccp-").
@@ -27,7 +30,7 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_DB = os.path.expanduser('~/Library/Application Support/mind-palace/mind-palace.sqlite')
-ROOMS = {'coding', 'music', 'art', 'mailroom'}
+MAIL_ROOM = 'mailroom'
 STATES = {'active', 'paused', 'done', 'dropped'}
 # With no state given, a project untouched for this long is imported as paused, not active.
 QUIET_DAYS = 30
@@ -90,14 +93,14 @@ def plan(sessions, labels, states, now):
         # Scheduled runs, tests and greetings: not conversations worth a chat.
         if label and label.get('confidence', 1) <= NOISE_CONFIDENCE:
             continue
-        room = label['room_id'] if label and label.get('room_id') in ROOMS else None
+        room = MAIL_ROOM
         chat_id = 'cc-' + session['id']
         chats.append({
             'id': chat_id,
             'title': title_of(session['messages'][0]['text'], label),
             'room_id': room,
-            'room_source': 'model' if room else None,
-            'classified_at': now if room else None,
+            'room_source': 'model',
+            'classified_at': now,
             'created_at': session['startedAt'],
             'last_message_at': session['lastAt'],
         })
@@ -110,8 +113,7 @@ def plan(sessions, labels, states, now):
     quiet_before = (datetime.datetime.fromisoformat(now.replace('Z', '+00:00')) - datetime.timedelta(days=QUIET_DAYS)).isoformat()
     for name, members in sorted(groups.items()):
         members.sort(key=lambda pair: pair[0]['startedAt'])
-        rooms = collections.Counter(room for _, room in members if room)
-        room = rooms.most_common(1)[0][0] if rooms else 'mailroom'
+        room = MAIL_ROOM
         last = max(session['lastAt'] for session, _ in members)
         state = states.get(name)
         if state not in STATES:
@@ -148,7 +150,7 @@ def main():
     print('chats per room:', dict(rooms))
     print('projects by state:', dict(collections.Counter(p['state'] for p in projects)))
     if not labels:
-        print('note: no import/labels.jsonl, so chats are imported unsorted and without projects')
+        print('note: no import/labels.jsonl, so chats are imported without projects')
     if not args.apply:
         print('dry run: nothing written. Add --apply to import.')
         return

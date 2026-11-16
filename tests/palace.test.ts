@@ -12,7 +12,7 @@ import {
   type OpenProject,
   type RawClassification
 } from '../src/shared/classify'
-import { parseEvalLine, scoreEval, type EvalOutcome } from '../src/shared/evalMetrics'
+import { areaAgreement, parseEvalLine, scoreEval, type EvalOutcome } from '../src/shared/evalMetrics'
 import { ACTIONS_BY_STATE, applyProjectAction, type ProjectState, type ProjectSummary } from '../src/shared/projects'
 import type { JsonAnswer } from '../src/main/chat/claude'
 import { createClassifier } from '../src/main/palace/classifier'
@@ -228,8 +228,8 @@ describe('eval scoring', () => {
   const outcome = (room: string, isProject: boolean, gotRoom: string | null, gotProject = false): EvalOutcome => ({
     file: 'eval/x.jsonl',
     line: 1,
-    expected: { messages: ['m'], room_id: room, is_project: isProject },
-    got: gotRoom === null ? null : { roomId: gotRoom, isProject: gotProject, confidence: 0.9 },
+    expected: { messages: ['m'], room_id: room, is_project: isProject, area: room },
+    got: gotRoom === null ? null : { roomId: gotRoom, isProject: gotProject, confidence: 0.9, area: gotRoom },
     ...(gotRoom === null ? { error: 'boom' } : {})
   })
 
@@ -258,14 +258,38 @@ describe('eval scoring', () => {
   })
 
   it('parses a line and rejects malformed ones', () => {
-    expect(parseEvalLine('{"messages":["a","b"],"room_id":"coding","is_project":true}')).toEqual({
+    expect(parseEvalLine('{"messages":["a","b"],"room_id":"software","is_project":true,"area":"software"}')).toEqual({
       messages: ['a', 'b'],
-      room_id: 'coding',
-      is_project: true
+      room_id: 'software',
+      is_project: true,
+      area: 'software'
     })
-    expect(() => parseEvalLine('{"messages":[],"room_id":"coding","is_project":true}')).toThrow('messages')
-    expect(() => parseEvalLine('{"messages":["a"],"room_id":"coding","is_project":"yes"}')).toThrow('is_project')
-    expect(() => parseEvalLine('{"messages":["a"],"is_project":true}')).toThrow('room_id')
+    expect(() => parseEvalLine('{"messages":[],"room_id":"software","is_project":true,"area":"software"}')).toThrow('messages')
+    expect(() => parseEvalLine('{"messages":["a"],"room_id":"software","is_project":"yes","area":"software"}')).toThrow('is_project')
+    expect(() => parseEvalLine('{"messages":["a"],"is_project":true,"area":"software"}')).toThrow('room_id')
+    expect(() => parseEvalLine('{"messages":["a"],"room_id":"software","is_project":true}')).toThrow('area')
+  })
+})
+
+describe('area agreement', () => {
+  const tagged = (expected: string, got: string | null): EvalOutcome => ({
+    file: 'eval/x.jsonl',
+    line: 1,
+    expected: { messages: ['m'], room_id: 'mailroom', is_project: false, area: expected },
+    got: got === null ? null : { roomId: 'mailroom', isProject: false, confidence: 0.9, area: got }
+  })
+
+  it('is 1 when the model groups exactly as labelled, whatever it calls the areas', () => {
+    expect(areaAgreement([tagged('a', 'x'), tagged('a', 'x'), tagged('b', 'y')])).toBe(1)
+  })
+
+  it('counts the pairs grouped the same way: one split area costs one pair in six', () => {
+    expect(areaAgreement([tagged('a', 'x'), tagged('a', 'x'), tagged('b', 'y'), tagged('b', 'z')])).toBeCloseTo(5 / 6)
+  })
+
+  it('counts a failed call as disagreeing, and needs two cases', () => {
+    expect(areaAgreement([tagged('a', 'x'), tagged('a', null)])).toBe(0)
+    expect(areaAgreement([tagged('a', 'x')])).toBeNull()
   })
 })
 

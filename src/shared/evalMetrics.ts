@@ -5,6 +5,8 @@ export interface EvalCase {
   messages: string[]
   room_id: string
   is_project: boolean
+  /** The area of life a person would file it under; only the grouping is scored, not the name. */
+  area: string
 }
 
 export interface EvalOutcome {
@@ -12,7 +14,7 @@ export interface EvalOutcome {
   line: number
   expected: EvalCase
   /** Null when the classifier call itself failed. */
-  got: { roomId: string; isProject: boolean; confidence: number } | null
+  got: { roomId: string; isProject: boolean; confidence: number; area: string | null } | null
   error?: string
 }
 
@@ -35,13 +37,14 @@ export const PROJECT_PRECISION_TARGET = 0.7
 export function parseEvalLine(text: string): EvalCase {
   const value: unknown = JSON.parse(text)
   if (typeof value !== 'object' || value === null) throw new Error('expected a JSON object')
-  const { messages, room_id, is_project } = value as Record<string, unknown>
+  const { messages, room_id, is_project, area } = value as Record<string, unknown>
   if (!Array.isArray(messages) || messages.length === 0 || !messages.every((m) => typeof m === 'string' && m.trim() !== '')) {
     throw new Error('"messages" must be a non-empty array of strings')
   }
   if (typeof room_id !== 'string' || room_id === '') throw new Error('"room_id" must be a string')
   if (typeof is_project !== 'boolean') throw new Error('"is_project" must be true or false')
-  return { messages: messages as string[], room_id, is_project }
+  if (typeof area !== 'string' || area === '') throw new Error('"area" must be a string')
+  return { messages: messages as string[], room_id, is_project, area }
 }
 
 export function scoreEval(outcomes: readonly EvalOutcome[]): EvalScore {
@@ -77,4 +80,26 @@ export function scoreEval(outcomes: readonly EvalOutcome[]): EvalScore {
     wrongRoom,
     wrongProject
   }
+}
+
+/**
+ * How well the model groups chats into areas, whatever it names them: the
+ * share of case pairs where "same labelled area" matches "same model area".
+ * A failed call (or no area) disagrees with every pair it is in. Null with
+ * fewer than two cases.
+ */
+export function areaAgreement(outcomes: readonly EvalOutcome[]): number | null {
+  if (outcomes.length < 2) return null
+  let pairs = 0
+  let agree = 0
+  for (let i = 0; i < outcomes.length; i++) {
+    for (let j = i + 1; j < outcomes.length; j++) {
+      pairs++
+      const a = outcomes[i]!
+      const b = outcomes[j]!
+      if (!a.got?.area || !b.got?.area) continue
+      if ((a.expected.area === b.expected.area) === (a.got.area === b.got.area)) agree++
+    }
+  }
+  return agree / pairs
 }

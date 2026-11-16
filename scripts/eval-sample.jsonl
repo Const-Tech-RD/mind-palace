@@ -1,12 +1,12 @@
-{"messages": ["My Python script throws KeyError when I read the CSV header, here is the traceback", "The file has a BOM at the start, could that be it?"], "room_id": "coding", "is_project": false}
-{"messages": ["I want to build a small inventory app for my uncle's hardware store with Next.js and Postgres", "Let's start with the data model for products and stock movements"], "room_id": "coding", "is_project": true}
-{"messages": ["What's the difference between a mutex and a semaphore?", "Give me an example in Go"], "room_id": "coding", "is_project": false}
-{"messages": ["How do I get a warmer bass tone when recording direct into the interface?", "I'm using a passive P-bass and no amp"], "room_id": "music", "is_project": false}
-{"messages": ["I'm writing a five-song reggae EP and need help structuring the second track", "The chorus is in A minor, I want the verse to feel like it lifts"], "room_id": "music", "is_project": true}
-{"messages": ["Explain what a secondary dominant is", "And how would I use one going to the vi chord in C major?"], "room_id": "music", "is_project": false}
-{"messages": ["Which colours go well with a dark teal background for a poster?", "It's for a jazz night, I want it to feel warm"], "room_id": "art", "is_project": false}
-{"messages": ["I'm designing a logo and brand kit for my friend's bakery", "She wants something hand-drawn, let's begin with three logo directions"], "room_id": "art", "is_project": true}
-{"messages": ["How do I draw hands that don't look stiff?", "Mostly struggling with the thumb"], "room_id": "art", "is_project": false}
-{"messages": ["What's a good recipe for a weeknight dinner with lentils?", "No dairy please"], "room_id": "mailroom", "is_project": false}
-{"messages": ["Help me write a polite message to my landlord about the broken water heater", "It has been two weeks since I first reported it"], "room_id": "mailroom", "is_project": false}
-{"messages": ["I'm planning a 10-day trip to Colombia in March and want to build the full itinerary", "Start with how to split the days between Bogotá, Medellín and Cartagena"], "room_id": "mailroom", "is_project": true}
+{"messages":["My Python script throws KeyError when I read the CSV header, here is the traceback","The file has a BOM at the start, could that be it?"],"room_id":"software","is_project":false,"area":"software"}
+{"messages":["I want to build a small inventory app for my uncle's hardware store with Next.js and Postgres","Let's start with the data model for products and stock movements"],"room_id":"software","is_project":true,"area":"software"}
+{"messages":["What's the difference between a mutex and a semaphore?","Give me an example in Go"],"room_id":"software","is_project":false,"area":"software"}
+{"messages":["How do I get a warmer bass tone when recording direct into the interface?","I'm using a passive P-bass and no amp"],"room_id":"music","is_project":false,"area":"music"}
+{"messages":["I'm writing a five-song reggae EP and need help structuring the second track","The chorus is in A minor, I want the verse to feel like it lifts"],"room_id":"music","is_project":true,"area":"music"}
+{"messages":["Explain what a secondary dominant is","And how would I use one going to the vi chord in C major?"],"room_id":"music","is_project":false,"area":"music"}
+{"messages":["Which colours go well with a dark teal background for a poster?","It's for a jazz night, I want it to feel warm"],"room_id":"art","is_project":false,"area":"art"}
+{"messages":["I'm designing a logo and brand kit for my friend's bakery","She wants something hand-drawn, let's begin with three logo directions"],"room_id":"art","is_project":true,"area":"art"}
+{"messages":["How do I draw hands that don't look stiff?","Mostly struggling with the thumb"],"room_id":"art","is_project":false,"area":"art"}
+{"messages":["What's a good recipe for a weeknight dinner with lentils?","No dairy please"],"room_id":"mailroom","is_project":false,"area":"cooking"}
+{"messages":["Help me write a polite message to my landlord about the broken water heater","It has been two weeks since I first reported it"],"room_id":"mailroom","is_project":false,"area":"home"}
+{"messages":["I'm planning a 10-day trip to Colombia in March and want to build the full itinerary","Start with how to split the days between Bogotá, Medellín and Cartagena"],"room_id":"mailroom","is_project":true,"area":"travel"}
