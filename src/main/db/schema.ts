@@ -51,8 +51,13 @@ export const messages = sqliteTable(
       .references(() => chats.id, { onDelete: 'cascade' }),
     role: text('role', { enum: MESSAGE_ROLES }).notNull(),
     content: text('content').notNull(),
-    /** The local day of this timestamp feeds the streak. */
     createdAt: text('created_at').notNull().default(utcNow),
+    /**
+     * `YYYY-MM-DD` in the settings timezone when the message was written; feeds
+     * the streak. Stored so a later timezone change never rewrites past days.
+     * Null only on rows older than the column, until the launch backfill.
+     */
+    localDay: text('local_day'),
     tokensIn: integer('tokens_in'),
     tokensOut: integer('tokens_out')
   },

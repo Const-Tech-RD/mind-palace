@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { localDayOf } from '@shared/engine'
 import { splitSources, type ChatMessage, type ChatRole, type ChatSummary } from '@shared/chat'
 import type { Db } from '../db/client'
 import { chats, messages, projectChats, projects } from '../db/schema'
@@ -35,8 +36,13 @@ const toChat = (
   sdkSessionId: row.sdkSessionId
 })
 
-/** Every read and write the chat needs. Timestamps are UTC ISO-8601, as in the schema. */
-export function createChatRepo(db: Db, now: () => Date = () => new Date()) {
+const systemTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone
+
+/**
+ * Every read and write the chat needs. Timestamps are UTC ISO-8601, as in the
+ * schema; `timeZone` is the settings timezone, used to stamp each message's local day.
+ */
+export function createChatRepo(db: Db, now: () => Date = () => new Date(), timeZone: () => string = systemTimeZone) {
   /** Adds the project a chat belongs to and the suggestion waiting on it. */
   function decorate(rows: ChatRecord[]): ChatRow[] {
     if (rows.length === 0) return []
@@ -127,6 +133,7 @@ export function createChatRepo(db: Db, now: () => Date = () => new Date()) {
         role: input.role,
         content: input.content,
         createdAt,
+        localDay: localDayOf(createdAt, timeZone()),
         tokensIn: input.tokensIn ?? null,
         tokensOut: input.tokensOut ?? null
       }
@@ -139,6 +146,26 @@ export function createChatRepo(db: Db, now: () => Date = () => new Date()) {
 
     setSession(chatId: string, sdkSessionId: string | null): void {
       db.update(chats).set({ sdkSessionId }).where(eq(chats.id, chatId)).run()
+    },
+
+    /**
+     * Stamps a local day on messages written before the column existed (or
+     * inserted without one, like the import script's older runs), using the
+     * current settings timezone. After this, their days never move again.
+     */
+    fillMissingLocalDays(): number {
+      const zone = timeZone()
+      return db.transaction((tx) => {
+        const rows = tx
+          .select({ id: messages.id, createdAt: messages.createdAt })
+          .from(messages)
+          .where(isNull(messages.localDay))
+          .all()
+        for (const row of rows) {
+          tx.update(messages).set({ localDay: localDayOf(row.createdAt, zone) }).where(eq(messages.id, row.id)).run()
+        }
+        return rows.length
+      })
     },
 
     /** Removes the chat; its messages go with it through the foreign key. */

@@ -90,12 +90,15 @@ function start(): void {
   const sessionsDir = join(app.getPath('userData'), 'claude-sessions')
   mkdirSync(sessionsDir, { recursive: true })
   const emit = (event: ChatEvent): void => getMainWindow()?.webContents.send(CHAT_EVENT_CHANNEL, event)
-  const chatRepo = createChatRepo(db.db)
+  const timeZone = (): string => db.getSetting('timezone') ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+  const chatRepo = createChatRepo(db.db, undefined, timeZone)
+  // Messages from before local days were stored keep the day they show today.
+  const stamped = chatRepo.fillMissingLocalDays()
+  if (stamped > 0) console.log(`[mind-palace] stored the local day on ${stamped} older messages`)
   const palaceRepo = createPalaceRepo(db.db)
   const onChanged = (chatId: string): void => emit({ type: 'updated', chatId })
 
   const emitApp = (event: AppEvent): void => getMainWindow()?.webContents.send(APP_EVENT_CHANNEL, event)
-  const timeZone = (): string => db.getSetting('timezone') ?? Intl.DateTimeFormat().resolvedOptions().timeZone
   const askSmallModel = (prompt: string, system: string, schema: Record<string, unknown>) =>
     askJson({
       prompt,

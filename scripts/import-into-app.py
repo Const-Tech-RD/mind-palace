@@ -181,7 +181,8 @@ def main():
         db.executemany(
             'INSERT INTO chats (id, title, room_id, room_source, classified_at, created_at, last_message_at) '
             'VALUES (:id, :title, :room_id, :room_source, :classified_at, :created_at, :last_message_at)', chats)
-        db.executemany('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)', messages)
+        db.executemany('INSERT INTO messages (id, chat_id, role, content, created_at, local_day) VALUES (?, ?, ?, ?, ?, ?)',
+                       [(*row, local_day(row[4], tz_name)) for row in messages])
         db.executemany(
             'INSERT INTO projects (id, title, room_id, origin_chat_id, state, last_activity_at, created_at, closed_at) '
             'VALUES (:id, :title, :room_id, :origin_chat_id, :state, :last_activity_at, :created_at, :closed_at)', projects)
