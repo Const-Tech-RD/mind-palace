@@ -24,10 +24,20 @@ export interface GoalCompletionRow {
   localDay: LocalDay
 }
 
+export interface ProjectRow {
+  id: string
+  roomId: string
+  state: string
+  /** Local day of the last activity, in the settings timezone; null if none yet. */
+  lastActivityDay: LocalDay | null
+}
+
 export interface HistoryRows {
   chats: readonly ChatRow[]
   messages: readonly MessageRow[]
   goalCompletions: readonly GoalCompletionRow[]
+  /** Projects as they stand now; they drive decay. Absent means none. */
+  projects?: readonly ProjectRow[]
 }
 
 /**
@@ -65,6 +75,9 @@ export function buildRoomEvents(rows: HistoryRows, timeZone: string): RoomEvent[
       localDay: completion.localDay,
       projectId: completion.projectId
     })
+  }
+  for (const project of rows.projects ?? []) {
+    events.push({ kind: 'project', roomId: project.roomId, projectId: project.id, state: project.state, lastActivityDay: project.lastActivityDay })
   }
   return events
 }

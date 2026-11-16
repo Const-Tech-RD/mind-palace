@@ -184,7 +184,7 @@ async function sessionChat() {
       const rooms = status.rooms.map((r) => r.id).sort().join(', ')
       expect(rooms === 'art, coding, mailroom, music', `rooms were: ${rooms}`)
       const tables = status.tables.join(', ')
-      expect(tables === 'chats, goal_completions, messages, project_chats, projects, reminders, settings', `tables were: ${tables}`)
+      expect(tables === 'chats, goal_completions, messages, placements, project_chats, projects, reminders, settings', `tables were: ${tables}`)
       expect(status.databasePath.startsWith(userData), `database was created at ${status.databasePath}`)
       return { observed: `Rooms: ${rooms}. Tables: ${tables}.` }
     }

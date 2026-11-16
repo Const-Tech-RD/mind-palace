@@ -39,7 +39,7 @@ export function ActivityStrip() {
         ) : (
           <ol className={`min-w-0 flex-1 ${open ? 'max-h-40 overflow-y-auto' : ''}`} aria-live="polite">
             {shown.map((item) => {
-              const accent = rooms?.find((r) => r.id === item.roomId)?.accent ?? '#6b6f8a'
+              const accent = rooms?.find((r) => r.id === item.roomId)?.accent ?? 'var(--color-muted)'
               const canOpen = item.chatId !== null && exists.has(item.chatId)
               return (
                 <li key={item.id} className="activity-line flex items-center gap-2 py-1">

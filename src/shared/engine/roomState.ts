@@ -1,7 +1,7 @@
 import type { Catalog, LadderStep, RoomDef, Rules, ShellTier } from '../catalog/schema'
 import { SHELL_TIERS, WEEKDAYS } from '../catalog/schema'
-import { dayFromNumber, dayNumber, weekdayIndex, type LocalDay } from './days'
-import type { NextUnlock, PlacedItem, Reward, RoomEvent, RoomState, Track } from './types'
+import { dayFromNumber, dayNumber, weekdayIndex, weekdaysBetween, type LocalDay } from './days'
+import type { DecayLevel, NextUnlock, PlacedItem, Reward, RoomEvent, RoomState, Track } from './types'
 
 /**
  * The progression engine: a pure function from the event history to what a
@@ -33,8 +33,13 @@ export function computeRoomState(
   const roomDays = new Set<number>()
   const goalDays = new Set<number>()
   let completions = 0
+  const projects: Array<Extract<RoomEvent, { kind: 'project' }>> = []
   for (const event of events) {
     if (event.roomId !== roomId) continue
+    if (event.kind === 'project') {
+      projects.push(event)
+      continue
+    }
     const n = dayNumber(event.localDay)
     // Days after `today` can only come from a clock or timezone change; they
     // have not happened yet on this calendar, so they are left out.
@@ -73,6 +78,7 @@ export function computeRoomState(
     shell,
     items,
     replaced,
+    decay: decayOf(projects, today),
     nextUnlock: {
       streak: nextUnlock(r, room, 'streak', streak.best, streak.current),
       goals: nextUnlock(r, room, 'goals', goalCount, goalCount)
@@ -226,4 +232,24 @@ function nextUnlock(rules: Rules, room: RoomDef, track: Track, reached: number, 
     milestone: milestones.includes(at),
     rewards: rules.base_ladder[track].filter((step) => step.at === at).flatMap((step) => stepRewards(step, room))
   }
+}
+
+/** Weekdays without activity at which each decay level starts (plan v2: dusty, cobwebs, mostly dark, dark). */
+export const DECAY_THRESHOLDS = [7, 14, 21, 30] as const
+
+/**
+ * The room's decay comes from its quietest active project. A room with no
+ * active project never decays, and furniture is never removed by it.
+ */
+function decayOf(projects: ReadonlyArray<Extract<RoomEvent, { kind: 'project' }>>, today: LocalDay): RoomState['decay'] {
+  let quietest: RoomState['decay'] = { level: 0, weekdaysQuiet: 0, projectId: null }
+  for (const project of projects) {
+    if (project.state !== 'active') continue
+    const quiet = project.lastActivityDay === null ? 0 : weekdaysBetween(project.lastActivityDay, today)
+    if (quietest.projectId === null || quiet > quietest.weekdaysQuiet) {
+      const level = DECAY_THRESHOLDS.filter((t) => quiet >= t).length as DecayLevel
+      quietest = { level, weekdaysQuiet: quiet, projectId: project.projectId }
+    }
+  }
+  return quietest
 }

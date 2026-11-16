@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
 import { DOORWAY, HALL_TILES, iso, LOBBY, PAINTED_WALL, PALACE_TILES, TILE, ROOM_ORIGIN, roomAt, tileAt, WALL_FULL, WALL_LOW } from '../src/shared/floor'
+import type { Placement } from '../src/shared/placements'
 import { buildPalace } from '../src/shared/palace'
 import { addDays } from './shared'
 import { catalog } from './helpers'
@@ -11,8 +12,8 @@ const rows = (roomId: string, days: number, goals = 0): HistoryRows => ({
   messages: Array.from({ length: days }, (_, i) => ({ chatId: 'c1', role: 'user', createdAt: `${addDays(TODAY, -i)}T16:00:00.000Z` })),
   goalCompletions: Array.from({ length: goals }, (_, i) => ({ projectId: `p${i}`, roomId, localDay: addDays(TODAY, -i - 1) }))
 })
-const floorOf = (r: HistoryRows, seen: Record<string, string[] | null> = {}) =>
-  buildPalace({ catalog, rows: r, timeZone: 'America/Santo_Domingo', today: TODAY, seen }).floor
+const floorOf = (r: HistoryRows, seen: Record<string, string[] | null> = {}, focus: string | null = null, placements: Placement[] = []) =>
+  buildPalace({ catalog, rows: r, timeZone: 'America/Santo_Domingo', today: TODAY, seen, placements, focus }).floor
 const empty: HistoryRows = { chats: [], messages: [], goalCompletions: [] }
 
 describe('iso', () => {
@@ -32,9 +33,20 @@ describe('iso', () => {
 
 describe('the hallways', () => {
   it('are wide enough that no painted wall reaches the floor of the room behind it', () => {
-    // A wall rises PAINTED_WALL units; one tile of hallway moves a front room's wall base 32 px down the screen.
+    // Plan v2 says 2 tiles. Rooms are normally shown as their paintings, whose back walls rise
+    // PAINTED_WALL units; one tile of hallway moves a front room's wall base 32 px down the screen.
     expect(HALL_TILES * TILE.h).toBeGreaterThanOrEqual(PAINTED_WALL * TILE.unit)
+    expect(HALL_TILES).toBe(5)
     expect(LOBBY).toBe(10.5)
+  })
+
+  it('only ever have low walls facing them, so no wall in front hides a room behind', () => {
+    for (const room of floorOf(empty).rooms) {
+      for (const wall of room.walls) {
+        const outer = (wall.along === 'x' && wall.y === 0 && !wall.front) || (wall.along === 'y' && wall.x === 0 && !wall.front)
+        if (!outer) expect(wall.height, `${room.id} ${wall.along} wall at ${wall.x},${wall.y}`).toBe(WALL_LOW)
+      }
+    }
   })
 })
 
@@ -136,3 +148,46 @@ describe('the connected floor', () => {
     expect(bounds).toEqual({ minX: -672, maxX: 672, minY: -153.6, maxY: 672 })
   })
 })
+
+describe('focus, placements and decay on the floor', () => {
+  // A goal unlocks the trophy shelf on wall_left_b: Art's left wall is low, onto a hallway.
+  const withShelf = (roomId: string): HistoryRows => rows(roomId, 1, 1)
+  const art = (focus: string | null) => floorOf(withShelf('art'), {}, focus).rooms.find((r) => r.id === 'art')!
+
+  it('leaves out items on a low wall in the whole-palace view and counts them', () => {
+    const room = art(null)
+    expect(room.blocks.some((b) => b.item === 'trophy_shelf')).toBe(false)
+    expect(room.hiddenWallItems).toBe(2) // the shelf and its trophy
+  })
+
+  it("raises the focused room's back walls and shows everything on them", () => {
+    const room = art('art')
+    expect(room.walls.filter((w) => !w.front).every((w) => w.height === WALL_FULL)).toBe(true)
+    expect(room.blocks.filter((b) => b.item === 'trophy_shelf' || b.item === 'trophy').map((b) => b.onLowWall)).toEqual([true, true])
+    expect(room.hiddenWallItems).toBe(0)
+  })
+
+  it('keeps wall items on the outer walls in view, focused or not', () => {
+    const coding = floorOf(withShelf('coding')).rooms.find((r) => r.id === 'coding')!
+    expect(coding.blocks.some((b) => b.item === 'trophy_shelf' && !b.onLowWall)).toBe(true)
+    expect(coding.hiddenWallItems).toBe(0)
+  })
+
+  it('draws a moved item at its new slot, with its instance and variant', () => {
+    const placements: Placement[] = [{ roomId: 'coding', instance: 'base_crate@seat#0', slot: 'beside_seat', variant: 'pine', hidden: false }]
+    const coding = floorOf(empty, {}, null, placements).rooms.find((r) => r.id === 'coding')!
+    const crate = coding.blocks.find((b) => b.item === 'base_crate')!
+    expect(crate).toMatchObject({ slot: 'beside_seat', instance: 'base_crate@seat#0', variant: 'pine', x: 5, y: 1 })
+  })
+
+  it("carries each room's decay level and light spot", () => {
+    const r: HistoryRows = { ...empty, projects: [{ id: 'p', roomId: 'music', state: 'active', lastActivityDay: '2026-10-01' }] }
+    const floor = floorOf(r)
+    expect(floor.rooms.find((x) => x.id === 'music')!.decay).toBe(4)
+    expect(floor.rooms.find((x) => x.id === 'coding')!.decay).toBe(0)
+    // The coding room's light is its desk_center item (the laptop), on the desk.
+    const coding = floor.rooms.find((x) => x.id === 'coding')!
+    expect(coding.lightAt).toEqual([3.5, 0.5])
+  })
+})
+

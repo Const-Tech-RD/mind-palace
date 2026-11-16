@@ -46,6 +46,27 @@ describe('the bundled catalog', () => {
     expect(catalog.rules.tracks.goals.milestones).toEqual([2, 3, 5, 8, 13])
   })
 
+  it('defines every item a ladder or a signature can place, with its size and slot kinds', () => {
+    const named = new Set<string>([
+      ...catalog.rules.base_ladder.start.map((s) => s.item),
+      ...catalog.rules.base_ladder.streak.flatMap((s) => (s.item ? [s.item] : [])),
+      ...catalog.rules.base_ladder.goals.flatMap((s) => (s.item ? [s.item] : [])),
+      catalog.rules.tracks.goals.every_completion.item,
+      ...Object.values(catalog.rooms).flatMap((r) => r.signature.map((s) => s.item))
+    ])
+    for (const item of named) expect(catalog.items[item], item).toBeDefined()
+    expect(catalog.items['base_desk']).toMatchObject({ layer: 'floor_item', footprint: [3, 1], height: 1, slots: ['desk'], variants: [] })
+    expect(catalog.items['trophy']).toMatchObject({ slots: ['trophy_shelf'] })
+    // A signature item takes the kinds of the slots it is placed in.
+    expect(catalog.items['coding_monitor']).toMatchObject({ layer: 'surface_item', slots: ['desk_surface'], mirrorable: true })
+    expect(catalog.items['music_speakers']!.slots).toEqual(['desk_surface'])
+  })
+
+  it('gives every slot a kind', () => {
+    const kinds = Object.fromEntries(Object.entries(catalog.rules.layout.slots).map(([id, slot]) => [id, slot.kind]))
+    expect(kinds).toMatchObject({ desk: 'desk', desk_center: 'desk_surface', seat: 'floor', rug: 'rug', wall_left_b: 'wall', trophy_shelf: 'trophy_shelf' })
+  })
+
   it('defaults weekend grace, which rules.json v0.1 does not spell out', () => {
     const raw = JSON.parse(readFileSync(join(CATALOG_DIR, 'rules.json'), 'utf8'))
     expect(raw.tracks.streak.grace_weekdays).toBeUndefined()
@@ -77,6 +98,30 @@ describe('a broken catalog fails loudly with path and field', () => {
   }
 
   const cases: Case[] = [
+    {
+      name: 'ladder item with no definition',
+      file: 'rules.json',
+      edit: (j) => void (j.base_ladder.streak[0].item = 'base_stool'),
+      expected: /rules\.json: base_ladder\.streak\.0\.item: "base_stool" has no item definition/
+    },
+    {
+      name: 'item that cannot go in its own default slot',
+      file: 'items.json',
+      edit: (j) => void (j.items.base_couch.slots = ['wall']),
+      expected: /items\.json: items\.base_couch\.slots: does not include "floor", the kind of slot "couch"/
+    },
+    {
+      name: 'item defined twice',
+      file: 'rooms/mailroom.json',
+      edit: (j) => void (j.assets.base_desk = { layer: 'floor_item', footprint: [3, 1], height: 1 }),
+      expected: /mailroom\.json: assets\.base_desk: is already defined in items\.json/
+    },
+    {
+      name: 'slot without a kind',
+      file: 'rules.json',
+      edit: (j) => void delete j.layout.slots.seat.kind,
+      expected: /rules\.json: layout\.slots\.seat\.kind: /
+    },
     {
       name: 'wrong type in a room',
       file: 'rooms/music.json',

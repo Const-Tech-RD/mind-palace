@@ -135,3 +135,24 @@ export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull()
 })
+
+/**
+ * Where the user put an earned item (plan v2, Placement). No row means the
+ * catalog's default slot. The engine never moves, hides or removes an item
+ * that has a row here.
+ */
+export const placements = sqliteTable(
+  'placements',
+  {
+    roomId: text('room_id').notNull(),
+    /** The engine's key for the item: `item@defaultSlot#index`. */
+    instance: text('instance').notNull(),
+    /** Null means the default slot. */
+    slot: text('slot'),
+    variant: text('variant'),
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+    updatedAt: text('updated_at').notNull().default(utcNow)
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.instance] })]
+)
+
