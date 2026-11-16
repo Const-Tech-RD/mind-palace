@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { accentCss } from '../theme'
 import {
   ACTIONS_BY_STATE,
@@ -8,6 +8,7 @@ import {
   type ProjectSummary
 } from '@shared/projects'
 import { useStore } from '../store'
+import { ProjectProgress } from './ProjectProgress'
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 const day = (iso: string | null): string | null => (iso ? dateFormat.format(new Date(iso)) : null)
@@ -18,6 +19,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
   const selectChat = useStore((s) => s.selectChat)
   const snoozed = project.snoozedUntil !== null && new Date(project.snoozedUntil) > new Date()
   const closed = project.state === 'done' || project.state === 'dropped'
+  const [showProgress, setShowProgress] = useState(false)
 
   return (
     <li className="rounded-lg bg-ink-soft p-4">
@@ -65,7 +67,16 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
             Open chat
           </button>
         )}
+        <button
+          type="button"
+          aria-expanded={showProgress}
+          onClick={() => setShowProgress((open) => !open)}
+          className="rounded-md px-3 py-1 text-sm text-paper/80 hover:bg-paper/10"
+        >
+          {showProgress ? 'Hide progress' : 'Progress'}
+        </button>
       </div>
+      {showProgress && <ProjectProgress projectId={project.id} />}
     </li>
   )
 }

@@ -3,6 +3,7 @@ import { addActivity, chatChanges, SORTING_ROOM, type ActivityItem, type Activit
 import { titleFromMessage, type AuthState, type ChatEvent, type ChatMessage, type ChatSummary } from '@shared/chat'
 import type { AppEvent, AppStatus } from '@shared/ipc'
 import type { PalaceView } from '@shared/palace'
+import type { MilestoneEdit, ProjectProgress, SweepCandidate } from '@shared/milestones'
 import type { PlacementChange } from '@shared/placements'
 import type { ProjectAction, ProjectSummary } from '@shared/projects'
 import type { ReminderItem, ReminderResponse } from '@shared/reminders'
@@ -19,6 +20,13 @@ interface State {
   auth: AuthState | null
   chats: ChatSummary[]
   projects: ProjectSummary[]
+  /** Each opened project's progress, by project id. */
+  progress: Record<string, ProjectProgress>
+  /** The sweep's proposed chats waiting for "Link these", by project id. */
+  sweeps: Record<string, SweepCandidate[]>
+  /** A sweep or link running, by project id (the build itself shows as `running`). */
+  progressBusy: Record<string, boolean>
+  progressErrors: Record<string, string>
   /** Reminders waiting for a reaction. */
   reminders: ReminderItem[]
   /** Whether system notifications are shown for reminders. */
@@ -77,6 +85,16 @@ interface State {
   /** Answers the "Track it?" card. */
   answerSuggestion(chatId: string, track: boolean): Promise<void>
   projectAction(projectId: string, action: ProjectAction): Promise<void>
+  loadProgress(projectId: string): Promise<void>
+  /** First run and "Find more chats": the sweep, then "Link these" (or straight to building when it finds none). */
+  sweepProject(projectId: string): Promise<void>
+  linkChats(projectId: string, accept: string[], dismiss: string[]): Promise<void>
+  buildProgress(projectId: string): Promise<void>
+  refreshProgress(projectId: string): Promise<void>
+  editMilestone(projectId: string, edit: MilestoneEdit): Promise<void>
+  answerProposal(projectId: string, proposalId: string, accept: boolean): Promise<void>
+  /** A path, `'pick'` for the folder dialog, or null to clear. */
+  setProjectFolder(projectId: string, folder: string | null): Promise<void>
   /** Opens the palace: on a room when given one, otherwise on the whole palace. */
   showPalace(roomId?: string | null): Promise<void>
   /** Starts a new chat that will be filed in this room. */
@@ -135,11 +153,21 @@ const without = <T,>(record: Record<string, T>, key: string): Record<string, T> 
   return rest
 }
 
+/**
+ * Runs a progress call and stores the answer, or the error, for that project.
+ * Resolves to whether it worked. Bound to the store below.
+ */
+let progressCall: (projectId: string, call: () => Promise<ProjectProgress>) => Promise<boolean> = async () => false
+
 export const useStore = create<State>((set, get) => ({
   status: null,
   auth: null,
   chats: [],
   projects: [],
+  progress: {},
+  sweeps: {},
+  progressBusy: {},
+  progressErrors: {},
   reminders: [],
   notificationsOn: true,
   palace: null,
@@ -327,6 +355,52 @@ export const useStore = create<State>((set, get) => ({
     await Promise.all([get().refreshProjects(), get().refreshChats(), get().refreshReminders(), get().refreshPalace()])
   },
 
+  async loadProgress(projectId) {
+    await progressCall(projectId, () => window.mindPalace.invoke('progress:get', { projectId }))
+  },
+
+  async sweepProject(projectId) {
+    set((s) => ({ progressBusy: { ...s.progressBusy, [projectId]: true }, progressErrors: without(s.progressErrors, projectId) }))
+    try {
+      const { candidates } = await window.mindPalace.invoke('progress:sweep', { projectId })
+      set((s) => ({ sweeps: { ...s.sweeps, [projectId]: candidates } }))
+      // Nothing new to confirm: the first run goes straight on to the draft.
+      if (candidates.length === 0 && (get().progress[projectId]?.milestones.length ?? 0) === 0) await get().buildProgress(projectId)
+    } catch (error) {
+      set((s) => ({ progressErrors: { ...s.progressErrors, [projectId]: describe(error) } }))
+    } finally {
+      set((s) => ({ progressBusy: without(s.progressBusy, projectId) }))
+    }
+  },
+
+  async linkChats(projectId, accept, dismiss) {
+    set((s) => ({ sweeps: without(s.sweeps, projectId) }))
+    const linked = await progressCall(projectId, () => window.mindPalace.invoke('progress:link', { projectId, accept, dismiss }))
+    if (!linked) return
+    await Promise.all([get().refreshProjects(), get().refreshChats()])
+    await get().buildProgress(projectId)
+  },
+
+  async buildProgress(projectId) {
+    await progressCall(projectId, () => window.mindPalace.invoke('progress:build', { projectId }))
+  },
+
+  async refreshProgress(projectId) {
+    await progressCall(projectId, () => window.mindPalace.invoke('progress:refresh', { projectId }))
+  },
+
+  async editMilestone(projectId, edit) {
+    await progressCall(projectId, () => window.mindPalace.invoke('progress:edit', { projectId, edit }))
+  },
+
+  async answerProposal(projectId, proposalId, accept) {
+    await progressCall(projectId, () => window.mindPalace.invoke('progress:answer', { projectId, proposalId, accept }))
+  },
+
+  async setProjectFolder(projectId, folder) {
+    await progressCall(projectId, () => window.mindPalace.invoke('progress:folder', { projectId, folder }))
+  },
+
   async showPalace(roomId) {
     set({ view: 'palace', appError: null, palaceRoomId: roomId ?? null, commandOpen: false })
     // The palace is a dashboard: it shows projects and reminders too.
@@ -464,6 +538,9 @@ export const useStore = create<State>((set, get) => ({
         void get().refreshPalace()
         if (get().view === 'projects') void get().refreshProjects()
         break
+      case 'progress_changed':
+        if (get().progress[event.projectId]) void get().loadProgress(event.projectId)
+        break
       case 'open_project':
         void get().refreshReminders()
         if (event.chatId) void get().refreshChats().then(() => get().selectChat(event.chatId!))
@@ -566,3 +643,14 @@ export const useStore = create<State>((set, get) => ({
     }
   }
 }))
+
+progressCall = async (projectId, call) => {
+  try {
+    const progress = await call()
+    useStore.setState((s) => ({ progress: { ...s.progress, [projectId]: progress }, progressErrors: without(s.progressErrors, projectId) }))
+    return true
+  } catch (error) {
+    useStore.setState((s) => ({ progressErrors: { ...s.progressErrors, [projectId]: describe(error) } }))
+    return false
+  }
+}

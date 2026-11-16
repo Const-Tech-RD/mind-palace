@@ -76,6 +76,13 @@ export interface ProjectProgress {
   running: boolean
 }
 
+/** A chat the sweep thinks belongs to a project, for the person to confirm. */
+export interface SweepCandidate {
+  id: string
+  title: string
+  firstMessage: string
+}
+
 export const MILESTONE_TITLE_MAX = 80
 
 /** Titles compared as the same: case, accents and punctuation ignored. */

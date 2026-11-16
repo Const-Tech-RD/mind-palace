@@ -8,7 +8,16 @@ import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import { localDayOf } from '@shared/engine/days'
 import { detectFolder, normPath, type EditFact } from '@shared/folders'
-import { acceptProposal, applyEdit, filterProposals, progressOf, type Milestone, type MilestoneEdit, type ProjectProgress } from '@shared/milestones'
+import {
+  acceptProposal,
+  applyEdit,
+  filterProposals,
+  progressOf,
+  type Milestone,
+  type MilestoneEdit,
+  type ProjectProgress,
+  type SweepCandidate
+} from '@shared/milestones'
 import {
   buildDigestPrompt,
   buildDraftPrompt,
@@ -57,12 +66,6 @@ export interface ProgressServiceDeps {
   onChatsMoved?: () => void
   now?: () => Date
   log?: (message: string) => void
-}
-
-export interface SweepCandidate {
-  id: string
-  title: string
-  firstMessage: string
 }
 
 export function createProgressService(deps: ProgressServiceDeps) {

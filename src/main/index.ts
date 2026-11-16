@@ -261,6 +261,23 @@ function start(): void {
     return { dismissed: true }
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
+  const progressService = progress
+  handle('progress:get', ({ projectId }) => progressService.get(projectId))
+  handle('progress:sweep', async ({ projectId }) => ({ candidates: await progressService.sweep(projectId) }))
+  handle('progress:link', ({ projectId, accept, dismiss }) => progressService.link(projectId, accept, dismiss))
+  handle('progress:build', ({ projectId }) => progressService.build(projectId))
+  handle('progress:refresh', ({ projectId }) => progressService.refresh(projectId))
+  handle('progress:edit', ({ projectId, edit }) => progressService.edit(projectId, edit))
+  handle('progress:answer', ({ proposalId, accept }) => progressService.answer(proposalId, accept))
+  handle('progress:folder', async ({ projectId, folder }) => {
+    if (folder !== 'pick') return progressService.setFolder(projectId, folder)
+    const window = getMainWindow()
+    const picked = window
+      ? await dialog.showOpenDialog(window, { title: 'Choose the project folder', properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ title: 'Choose the project folder', properties: ['openDirectory'] })
+    const chosen = picked.canceled ? undefined : picked.filePaths[0]
+    return chosen ? progressService.setFolder(projectId, chosen) : progressService.get(projectId)
+  })
   const roomService = createRoomService({
     store: db,
     roomsRepo,
