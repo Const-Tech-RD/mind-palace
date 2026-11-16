@@ -4,48 +4,58 @@ import 'pixi.js/unsafe-eval'
 import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
-import { iso, LOBBY as LOBBY_AT, PAINTED_WALL, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
-import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
+import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
+import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
+import { boxOfRoom, fitCamera } from '@shared/camera'
+import { faceShades, shade } from '@shared/color'
+import { slotAt } from '@shared/editMode'
+import { fadeDarkness, setFiltersIfAlive, type Fade } from './fade'
+import { darknessOf, FLICKER, flickerOn, LIGHTS_ON_MS, nextFlickerDelay } from '@shared/flicker'
+import type { DecayLevel } from '@shared/engine'
+import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
 
 /**
- * The connected palace, drawn as one PixiJS scene from the floor model. A room
- * that has a painting is shown as that painting, cut out and set on the floor;
- * a room without one is drawn as placeholder blocks sized by footprint and height.
+ * The connected palace, drawn as one PixiJS scene from the floor model. Every
+ * item is a placeholder block sized by its footprint and height until its
+ * sprite exists; the room paintings are only the header picture beside a room.
  * This component only draws and reports clicks; everything it shows comes in
  * through props.
  */
 
 const hex = (colour: string): number => parseInt(colour.replace('#', ''), 16)
-const shade = (colour: number, factor: number): number => {
-  const channel = (shift: number): number => Math.max(0, Math.min(255, Math.round(((colour >> shift) & 0xff) * factor)))
-  return (channel(16) << 16) | (channel(8) << 8) | channel(0)
-}
 const mix = (a: number, b: number, t: number): number => {
   const channel = (shift: number): number => Math.round(((a >> shift) & 0xff) * (1 - t) + ((b >> shift) & 0xff) * t)
   return (channel(16) << 16) | (channel(8) << 8) | channel(0)
 }
 
 /** The room's shell tier shows in its floor and walls: bare is dull, finished is warm. */
-const SHELL: Record<ShellTier, { floor: number; wall: number; tint: number }> = {
-  bare: { floor: 0x4d4037, wall: 0x5a4c42, tint: 0.05 },
-  painted: { floor: 0x6f4e35, wall: 0x7a5a40, tint: 0.12 },
-  finished: { floor: 0x8a5a33, wall: 0x94683f, tint: 0.2 }
+const SHELL_TINT: Record<ShellTier, number> = { bare: 0.05, painted: 0.12, finished: 0.2 }
+const shellLook = (shell: ShellTier): { floor: number; wall: number; tint: number } => ({
+  floor: shell === 'bare' ? P.floorBare : shell === 'painted' ? P.floorPainted : P.floorFinished,
+  wall: shell === 'bare' ? P.wallBare : shell === 'painted' ? P.wallPainted : P.wallFinished,
+  tint: SHELL_TINT[shell]
+})
+/** Every colour comes from the `--mp-*` tokens, read when the canvas mounts. */
+let P: Palette
+/** A room's accent token, or the catalog's accent when the theme has none for that room. */
+function accentOf(room: { id: string; accent: string }): number {
+  try {
+    return readToken(roomAccentToken(room.id))
+  } catch {
+    return hex(room.accent)
+  }
 }
-const HALL_FLOOR = 0x35261d
-const OUTLINE = 0x150e0f
-const WOOD = 0xa9744a
-const PARCHMENT = 0xf3e6c8
-const GOLD = 0xe8b84a
-const SUCCESS = 0x9cc27a
 
 const pts = (corners: Array<{ x: number; y: number }>): number[] => corners.flatMap((c) => [c.x, c.y])
 
 /** A box on the floor: top face, then the two faces towards the viewer. */
-function drawBox(g: Graphics, x: number, y: number, w: number, d: number, z: number, h: number, colour: number, stroke = OUTLINE, strokeWidth = 1): void {
+function drawBox(g: Graphics, x: number, y: number, w: number, d: number, z: number, h: number, colour: number, stroke?: number, strokeWidth = 1): void {
   const top = z + h
-  g.poly(pts([iso(x, y + d, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x, y + d, z)])).fill(shade(colour, 0.78)).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
-  g.poly(pts([iso(x + w, y, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x + w, y, z)])).fill(shade(colour, 0.6)).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
-  g.poly(pts([iso(x, y, top), iso(x + w, y, top), iso(x + w, y + d, top), iso(x, y + d, top)])).fill(colour).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
+  stroke ??= P.outline
+  const [topFace, leftFace, rightFace] = faceShades(colour)
+  g.poly(pts([iso(x, y + d, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x, y + d, z)])).fill(leftFace).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
+  g.poly(pts([iso(x + w, y, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x + w, y, z)])).fill(rightFace).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
+  g.poly(pts([iso(x, y, top), iso(x + w, y, top), iso(x + w, y + d, top), iso(x, y + d, top)])).fill(topFace).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
 }
 
 function drawFloor(g: Graphics, x: number, y: number, w: number, d: number, colour: number): void {
@@ -53,7 +63,7 @@ function drawFloor(g: Graphics, x: number, y: number, w: number, d: number, colo
   // Tile seams, faint.
   for (let i = 0; i <= w; i++) g.moveTo(iso(x + i, y).x, iso(x + i, y).y).lineTo(iso(x + i, y + d).x, iso(x + i, y + d).y)
   for (let j = 0; j <= d; j++) g.moveTo(iso(x, y + j).x, iso(x, y + j).y).lineTo(iso(x + w, y + j).x, iso(x + w, y + j).y)
-  g.stroke({ color: OUTLINE, width: 1, alpha: 0.22 })
+  g.stroke({ color: P.outline, width: 1, alpha: 0.22 })
 }
 
 const WALL_T = 0.14
@@ -73,51 +83,22 @@ function drawWall(g: Graphics, wall: FloorWall, colour: number): void {
 }
 
 function blockColour(block: FloorBlock, accent: number): number {
-  if (block.item === 'trophy') return GOLD
-  if (block.layer === 'rug') return mix(0x5a3a2a, accent, 0.45)
-  if (block.layer === 'wall_item') return block.item === 'window' ? 0x9cc9d6 : PARCHMENT
+  if (block.item === 'trophy') return P.gold
+  if (block.layer === 'rug') return mix(P.rug, accent, 0.45)
+  if (block.layer === 'wall_item') return block.item === 'window' ? P.glass : P.parchment
   // Signature items carry the room's colour; shared furniture is plain wood.
-  return block.item.startsWith('base_') || block.item === 'trophy_shelf' ? WOOD : mix(WOOD, accent, 0.55)
+  return block.item.startsWith('base_') || block.item === 'trophy_shelf' ? P.wood : mix(P.wood, accent, 0.55)
 }
 
-/** How much of a painted room's colour shows at each shell tier: a bare room is dim and almost grey. */
-function shellFilter(shell: ShellTier): ColorMatrixFilter | null {
-  if (shell === 'finished') return null
-  const filter = new ColorMatrixFilter()
-  filter.saturate(shell === 'bare' ? -0.85 : -0.4, false)
-  filter.brightness(shell === 'bare' ? 0.6 : 0.85, true)
-  return filter
-}
-
-function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean, painting: Texture | undefined): Container {
+function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean): Container {
   const [ox, oy] = room.origin
-  const look = SHELL[room.shell]
-  const accent = hex(room.accent)
-  const cut = ROOM_CUT[room.id]
-  if (painting && cut) {
-    const origin = iso(ox, oy)
-    const picture = new Sprite(painting)
-    picture.scale.set(1 / cut.scale)
-    picture.position.set(origin.x - cut.anchorX / cut.scale, origin.y - cut.anchorY / cut.scale)
-    const filter = shellFilter(room.shell)
-    if (filter) picture.filters = [filter]
-    layer.addChild(picture)
-    if (hovered) {
-      const outline = new Graphics()
-      outline
-        .poly(pts([iso(ox, oy), iso(ox + ROOM_TILES, oy), iso(ox + ROOM_TILES, oy + ROOM_TILES), iso(ox, oy + ROOM_TILES)]))
-        .stroke({ color: accent, width: 3, alpha: 0.95 })
-      layer.addChild(outline)
-    }
-    const cast = new Container()
-    layer.addChild(cast)
-    return cast
-  }
+  const look = shellLook(room.shell)
+  const accent = accentOf(room)
   const back = new Graphics()
   drawFloor(back, ox, oy, ROOM_TILES, ROOM_TILES, mix(look.floor, accent, look.tint))
   for (const wall of room.walls) if (!wall.front) drawWall(back, wall, wall.height === WALL_FULL ? mix(look.wall, accent, look.tint * 0.7) : look.wall)
   // The room's light: one soft glow in its accent.
-  const glow = iso(ox + 4, oy + 3)
+  const glow = iso(room.lightAt[0], room.lightAt[1])
   for (const [radius, alpha] of [
     [150, 0.05],
     [100, 0.06],
@@ -132,7 +113,7 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
 
   const things = new Graphics()
   for (const block of room.blocks) {
-    drawBox(things, block.x, block.y, block.w, block.d, block.z, block.h, blockColour(block, accent), block.isNew ? GOLD : OUTLINE, block.isNew ? 2.5 : 1)
+    drawBox(things, block.x, block.y, block.w, block.d, block.z, block.h, blockColour(block, accent), block.isNew ? P.gold : P.outline, block.isNew ? 2.5 : 1)
   }
   layer.addChild(things)
 
@@ -144,6 +125,83 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
   for (const wall of room.walls) if (wall.front) drawWall(front, wall, look.wall)
   layer.addChild(front)
   return cast
+}
+
+/** Small deterministic noise per room, so dust and cobwebs do not jump on every redraw. */
+function seeded(seed: string): () => number {
+  let h = 2166136261
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+  return () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0
+    return (h % 10000) / 10000
+  }
+}
+
+/** Dust on the floor from level 1, cobwebs in the back corners from level 2 (plan v2, Decay). */
+function drawDecay(layer: Container, room: FloorRoom): void {
+  if (room.decay < 1) return
+  const [ox, oy] = room.origin
+  const random = seeded(room.id)
+  const g = new Graphics()
+  for (let i = 0; i < 26 + room.decay * 10; i++) {
+    const at = iso(ox + 0.3 + random() * (ROOM_TILES - 0.6), oy + 0.3 + random() * (ROOM_TILES - 0.6))
+    g.ellipse(at.x, at.y, 2 + random() * 5, 1 + random() * 2.5).fill({ color: P.dust, alpha: 0.22 + random() * 0.18 })
+  }
+  if (room.decay >= 2) {
+    const tall = room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1
+    const corner = iso(ox, oy, tall)
+    const down = iso(ox, oy, tall - 1.1)
+    const right = iso(ox + 1.3, oy, tall)
+    const left = iso(ox, oy + 1.3, tall)
+    for (const side of [right, left]) {
+      g.moveTo(corner.x, corner.y).lineTo(side.x, side.y).lineTo(down.x, down.y).lineTo(corner.x, corner.y)
+      for (let k = 1; k <= 3; k++) {
+        const t = k / 4
+        g.moveTo(corner.x + (side.x - corner.x) * t, corner.y + (side.y - corner.y) * t).lineTo(corner.x + (down.x - corner.x) * t, corner.y + (down.y - corner.y) * t)
+      }
+    }
+    g.stroke({ color: P.cobweb, width: 1, alpha: 0.55 })
+  }
+  layer.addChild(g)
+}
+
+/** Room editor: outlines the slots the chosen item can go to, on the floor, the desk or the wall. */
+function drawTargets(layer: Container, room: FloorRoom, slots: FloorView['slots'], ids: readonly string[]): void {
+  const [ox, oy] = room.origin
+  const g = new Graphics()
+  for (const id of ids) {
+    const slot = slots[id]
+    if (!slot) continue
+    if (slot.wall) {
+      const from = slot.from_tile ?? 0
+      const to = from + (slot.width ?? 1)
+      const z0 = slot.bottom_z ?? 2
+      const z1 = z0 + 1.4
+      const corners =
+        slot.wall === 'right'
+          ? [iso(ox + from, oy, z0), iso(ox + to, oy, z0), iso(ox + to, oy, z1), iso(ox + from, oy, z1)]
+          : [iso(ox, oy + from, z0), iso(ox, oy + to, z0), iso(ox, oy + to, z1), iso(ox, oy + from, z1)]
+      g.poly(pts(corners)).fill({ color: P.gold, alpha: 0.18 }).stroke({ color: P.gold, width: 2, alpha: 0.9 })
+      continue
+    }
+    if (!slot.tile) continue
+    const [tx, ty] = slot.tile
+    const [w, d] = slot.kind === 'desk_surface' ? [1, 1] : (slot.footprint ?? [1, 1])
+    const z = slot.kind === 'desk_surface' ? 1.02 : 0.02
+    const corners = [iso(ox + tx, oy + ty, z), iso(ox + tx + w, oy + ty, z), iso(ox + tx + w, oy + ty + d, z), iso(ox + tx, oy + ty + d, z)]
+    g.poly(pts(corners)).fill({ color: P.gold, alpha: 0.18 }).stroke({ color: P.gold, width: 2, alpha: 0.9 })
+  }
+  layer.addChild(g)
+}
+
+/** Greys the room from level 1 and dims it from level 3; `light` overrides the darkness (flicker, lights back on). */
+function decayFilter(level: DecayLevel, light?: number): ColorMatrixFilter | null {
+  const dark = light ?? darknessOf(level)
+  if (level === 0 && dark === 0) return null
+  const filter = new ColorMatrixFilter()
+  filter.saturate(level >= 3 ? -0.7 : level === 2 ? -0.55 : level === 1 ? -0.35 : 0, false)
+  if (dark > 0) filter.brightness(1 - dark, true)
+  return filter
 }
 
 /** A texture from a bundled image, through a plain <img> so no worker or fetch is involved. */
@@ -164,7 +222,8 @@ function wayOut(origin: readonly [number, number]): Array<[number, number]> {
   return [[ox + 4, oy === 0 ? oy + 7.6 : oy + 0.4], [ox + 4, LOBBY_AT]]
 }
 function standIn(roomId: string | undefined): readonly [number, number] {
-  return (roomId && ROOM_CUT[roomId]?.nato) || STAND
+  void roomId
+  return STAND
 }
 function route(from: readonly [number, number] | null, to: readonly [number, number], stand: readonly [number, number]): Array<[number, number]> {
   const end: [number, number] = [to[0] + stand[0], to[1] + stand[1]]
@@ -199,7 +258,10 @@ export function PalaceCanvas({
   natoRoom,
   agents,
   onPick,
-  onLabels
+  onLabels,
+  onHover,
+  highlights,
+  onSlot
 }: {
   floor: FloorView
   /** The room zoomed into, or null for the whole palace. */
@@ -210,16 +272,22 @@ export function PalaceCanvas({
   onPick: (roomId: string) => void
   /** Screen positions (in CSS pixels of the stage) to pin a label over each room; called when the camera moves. */
   onLabels: (labels: CanvasLabel[]) => void
+  /** The room under the pointer, for the tooltip; null when none. */
+  onHover?: (roomId: string | null) => void
+  /** Room editor: slots of the focused room to outline, and what to do when one is clicked. */
+  highlights?: readonly string[]
+  onSlot?: (slotId: string) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
   const [hover, setHover] = useState<string | null>(null)
+  useEffect(() => onHover?.(hover), [hover, onHover])
   const stage = useRef<{
     app: Application
     world: Container
     rooms: Container
     nato: Sprite | null
-    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture> } | null
+    textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture } | null
   } | null>(null)
   const camera = useRef<{ now: Camera; goal: Camera; free: boolean }>({ now: { scale: 1, x: 0, y: 0 }, goal: { scale: 1, x: 0, y: 0 }, free: false })
   const walk = useRef<{
@@ -233,9 +301,12 @@ export function PalaceCanvas({
     strolling: boolean
   }>({ at: [LOBBY[0], LOBBY[1]], path: [], room: null, home: null, roomId: null, nextStroll: 0, strolling: false })
   const helpers = useRef<HelperSprite[]>([])
-  const latest = useRef({ floor, focus, onPick, onLabels, agents })
-  latest.current = { floor, focus, onPick, onLabels, agents }
+  const latest = useRef({ floor, focus, onPick, onLabels, agents, highlights, onSlot })
+  latest.current = { floor, focus, onPick, onLabels, agents, highlights, onSlot }
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
+  const decayLevels = useRef(new Map<string, DecayLevel>())
+  const roomLayers = useRef(new Map<string, Container>())
+  const fades = useRef(new Map<string, Fade>())
 
   /** The camera that shows a room, or the whole floor, inside the stage. */
   const cameraFor = (roomId: string | null): Camera => {
@@ -243,21 +314,7 @@ export function PalaceCanvas({
     const width = el?.clientWidth ?? 800
     const height = el?.clientHeight ?? 500
     const room = roomId ? latest.current.floor.rooms.find((r) => r.id === roomId) : undefined
-    let box = latest.current.floor.bounds
-    if (room) {
-      const [ox, oy] = room.origin
-      const tall = ROOM_CUT[room.id] ? PAINTED_WALL : room.walls.some((w) => w.height === WALL_FULL) ? WALL_FULL : 1.6
-      const corners = [iso(ox, oy, tall), iso(ox + ROOM_TILES, oy, tall), iso(ox, oy + ROOM_TILES), iso(ox + ROOM_TILES, oy + ROOM_TILES)]
-      box = {
-        minX: Math.min(...corners.map((c) => c.x)),
-        maxX: Math.max(...corners.map((c) => c.x)),
-        minY: Math.min(...corners.map((c) => c.y)),
-        maxY: Math.max(...corners.map((c) => c.y))
-      }
-    }
-    const margin = room ? 0.86 : 0.94
-    const scale = Math.min((width * margin) / (box.maxX - box.minX), (height * margin) / (box.maxY - box.minY))
-    return { scale, x: width / 2 - ((box.minX + box.maxX) / 2) * scale, y: height / 2 - ((box.minY + box.maxY) / 2) * scale }
+    return room ? fitCamera(boxOfRoom(room), { width, height }, 32) : fitCamera(latest.current.floor.bounds, { width, height }, 24)
   }
 
   // Set the scene up once.
@@ -265,6 +322,7 @@ export function PalaceCanvas({
     const el = host.current
     if (!el) return
     let cancelled = false
+    P = readPalette()
     const app = new Application()
     void (async () => {
       await app.init({ resizeTo: el, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 })
@@ -284,19 +342,17 @@ export function PalaceCanvas({
       camera.current.now = cameraFor(latest.current.focus)
       camera.current.goal = camera.current.now
 
-      const paintings = await Promise.all(Object.entries(ROOM_CUT).map(async ([id, cut]) => [id, await loadTexture(cut.url)] as const))
       const helperTextures = await Promise.all(Object.entries(HELPER_SPRITE).map(async ([id, url]) => [id, await loadTexture(url)] as const))
       const textures = {
         walk: await Promise.all(NATO_FRAMES.walk.map(loadTexture)),
         sit: await loadTexture(NATO_FRAMES.sit),
         helpers: Object.fromEntries(helperTextures),
-        lobby: await loadTexture(LOBBY_SPRITE.url),
-        rooms: Object.fromEntries(paintings)
+        lobby: await loadTexture(LOBBY_SPRITE.url)
       }
       const standing = textures.walk[3]!
       if (cancelled) return
       const shadow = new Graphics()
-      shadow.ellipse(0, 0, 15, 6).fill({ color: 0x000000, alpha: 0.35 })
+      shadow.ellipse(0, 0, 15, 6).fill({ color: P.shadow, alpha: 0.35 })
       const nato = new Sprite(standing)
       nato.anchor.set(0.5, 0.985)
       const natoScale = CHARACTER_HEIGHT / NATO_FRAMES.figureHeight
@@ -384,7 +440,7 @@ export function PalaceCanvas({
           last = key
           latest.current.onLabels(
             latest.current.floor.rooms.map((room) => {
-              const tall = ROOM_CUT[room.id] ? PAINTED_WALL : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
+              const tall = room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
               const at = iso(room.origin[0], room.origin[1], tall - 0.6)
               return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
             })
@@ -408,7 +464,7 @@ export function PalaceCanvas({
     if (!ready || !s || !s.textures) return
     const halls = s.world.children[0] as Graphics
     halls.clear()
-    for (const hall of floor.halls) drawFloor(halls, hall.x, hall.y, hall.w, hall.d, HALL_FLOOR)
+    for (const hall of floor.halls) drawFloor(halls, hall.x, hall.y, hall.w, hall.d, P.hallway)
     for (const old of s.rooms.removeChildren()) old.destroy({ children: true })
     helpers.current = []
     const frontMost = floor.rooms[floor.rooms.length - 1]
@@ -427,10 +483,38 @@ export function PalaceCanvas({
       // Zoomed into a room, the others step back so their walls do not crowd the view.
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
-      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id, s.textures.rooms[room.id])
+      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id)
+      drawDecay(layer, room)
+      if (focus === room.id && highlights && highlights.length > 0) drawTargets(layer, room, floor.slots, highlights)
+      const before = decayLevels.current.get(room.id)
+      decayLevels.current.set(room.id, room.decay)
+      const filter = decayFilter(room.decay)
+      if (filter) layer.filters = [filter]
+      roomLayers.current.set(room.id, layer)
+      if (before !== undefined && before >= 3 && room.decay < 3 && !reducedMotion) {
+        // Lights back on: the darkness lifts over a moment instead of vanishing. The fade
+        // belongs to the room, not this layer, so a redraw mid-fade carries it on.
+        const id = room.id
+        fades.current.set(id, { from: darknessOf(before), start: performance.now() })
+        const step = (): void => {
+          const fade = fades.current.get(id)
+          const current = roomLayers.current.get(id)
+          if (!fade) return
+          const level = decayLevels.current.get(id) ?? 0
+          const dark = fadeDarkness(fade, performance.now(), LIGHTS_ON_MS)
+          if (dark <= 0) {
+            fades.current.delete(id)
+            const settled = decayFilter(level)
+            if (current) setFiltersIfAlive(current, settled ? [settled] : [])
+            return
+          }
+          if (current) setFiltersIfAlive(current, [decayFilter(level, dark) ?? new ColorMatrixFilter()])
+          requestAnimationFrame(step)
+        }
+        requestAnimationFrame(step)
+      }
       const agent = agents[room.id]
-      const painted = ROOM_CUT[room.id]
-      const spotTile = painted ? [room.origin[0] + painted.helper[0], room.origin[1] + painted.helper[1]] : [room.helperSpots[0]![0] + 0.5, room.helperSpots[0]![1] + 0.5]
+      const spotTile = [room.helperSpots[0]![0] + 0.5, room.helperSpots[0]![1] + 0.5]
       const spot = iso(spotTile[0]!, spotTile[1]!)
       const helper = new Sprite(s.textures.helpers[room.id] ?? s.textures.helpers['coding']!) as HelperSprite
       helper.anchor.set(0.5, 0.98)
@@ -444,13 +528,38 @@ export function PalaceCanvas({
       if (agent && agent.state !== 'idle') {
         // A dot over an active helper: the room's colour while working, green when done.
         const dot = new Graphics()
-        const colour = agent.state === 'done' ? SUCCESS : hex(room.accent)
+        const colour = agent.state === 'done' ? P.success : accentOf(room)
         dot.circle(spot.x, spot.y - CHARACTER_HEIGHT * 0.72 - 9, 9).fill({ color: colour, alpha: 0.28 })
-        dot.circle(spot.x, spot.y - CHARACTER_HEIGHT * 0.72 - 9, 5).fill(colour).stroke({ color: OUTLINE, width: 1 })
+        dot.circle(spot.x, spot.y - CHARACTER_HEIGHT * 0.72 - 9, 5).fill(colour).stroke({ color: P.outline, width: 1 })
         cast.addChild(dot)
       }
     }
-  }, [ready, floor, hover, focus, agents])
+  }, [ready, floor, hover, focus, agents, highlights])
+
+  // A mostly dark room's light flickers on now and then (never with reduced motion).
+  useEffect(() => {
+    if (!ready) return
+    const timers: number[] = []
+    for (const room of floor.rooms) {
+      if (!flickerOn(room.decay, reducedMotion)) continue
+      const schedule = (): void => {
+        timers.push(
+          window.setTimeout(() => {
+            const layer = roomLayers.current.get(room.id)
+            if (layer && !layer.destroyed) {
+              setFiltersIfAlive(layer, [decayFilter(room.decay, FLICKER.alpha)!])
+              timers.push(window.setTimeout(() => {
+                setFiltersIfAlive(layer, [decayFilter(room.decay)!])
+              }, FLICKER.ms))
+            }
+            schedule()
+          }, nextFlickerDelay(Math.random))
+        )
+      }
+      schedule()
+    }
+    return () => timers.forEach((t) => window.clearTimeout(t))
+  }, [ready, floor, reducedMotion])
 
   // Zoom to the focused room, or back out to the whole palace.
   useEffect(() => {
@@ -534,6 +643,15 @@ export function PalaceCanvas({
       if (wasDrag) return
       const room = roomUnder(event)
       if (room && room !== latest.current.focus) latest.current.onPick(room)
+      else if (room && room === latest.current.focus && latest.current.onSlot) {
+        // Room editor: a click on an outlined floor slot places the chosen item there.
+        const focused = latest.current.floor.rooms.find((r) => r.id === room)
+        const box = el.getBoundingClientRect()
+        const cam = camera.current.now
+        const tile = tileAt({ x: (event.clientX - box.left - cam.x) / cam.scale, y: (event.clientY - box.top - cam.y) / cam.scale })
+        const slot = focused ? slotAt(latest.current.floor.slots, tile.x - focused.origin[0], tile.y - focused.origin[1]) : null
+        if (slot && latest.current.highlights?.includes(slot)) latest.current.onSlot(slot)
+      }
     }
     const leave = (): void => setHover(null)
     const wheel = (event: WheelEvent): void => {

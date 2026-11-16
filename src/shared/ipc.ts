@@ -8,6 +8,7 @@
  */
 import type { AuthState, ChatEvent, ChatMessage, ChatSummary } from './chat'
 import type { PalaceView } from './palace'
+import type { PlacementChange } from './placements'
 import type { ProjectAction, ProjectSummary } from './projects'
 import type { ReminderItem, ReminderResponse } from './reminders'
 
@@ -88,7 +89,18 @@ export interface IpcContract {
   }
   /** Every room's state from the progression engine, with what is new since it was last looked at. */
   'palace:view': {
-    request: void
+    /** `focus`: the room zoomed into; its back walls rise and show what hangs on them. */
+    request: { focus?: string | null } | void
+    response: PalaceView
+  }
+  /** Moves an item to a slot, picks its variant, or hides it (only the fields given change). */
+  'palace:place': {
+    request: PlacementChange
+    response: PalaceView
+  }
+  /** Puts an item back where the catalog puts it. */
+  'palace:reset': {
+    request: { roomId: string; instance: string }
     response: PalaceView
   }
   /** Marks a room as looked at: what it holds now is no longer "new". */
@@ -160,6 +172,8 @@ export const IPC_CHANNELS = [
   'project:action',
   'palace:view',
   'palace:seen',
+  'palace:place',
+  'palace:reset',
   'reminder:list',
   'reminder:respond',
   'reminder:notifications'

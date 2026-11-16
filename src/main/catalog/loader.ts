@@ -4,6 +4,7 @@ import type { z } from 'zod'
 import {
   crossValidateCatalog,
   formatIssue,
+  itemsFileSchema,
   roomSchema,
   rulesSchema,
   zodIssuesToCatalogIssues,
@@ -64,6 +65,8 @@ export function loadCatalog(dir: string): LoadedCatalog {
 
   const rulesFile = join(dir, 'rules.json')
   const rules = readAndParse(rulesFile, rulesSchema, issues)
+  const itemsFile = join(dir, 'items.json')
+  const shared = readAndParse(itemsFile, itemsFileSchema, issues)
 
   const roomsDir = join(dir, 'rooms')
   let roomFileNames: string[] = []
@@ -90,10 +93,12 @@ export function loadCatalog(dir: string): LoadedCatalog {
   }
 
   let warnings: CatalogIssue[] = []
+  let items: Catalog['items'] = {}
   if (rules) {
-    const cross = crossValidateCatalog(rulesFile, rules, roomFiles)
+    const cross = crossValidateCatalog(rulesFile, rules, roomFiles, { file: itemsFile, items: shared?.items ?? {} })
     issues.push(...cross.errors)
     warnings = cross.warnings
+    items = cross.items
   }
 
   if (issues.length > 0 || !rules) throw new CatalogError(issues)
@@ -101,6 +106,7 @@ export function loadCatalog(dir: string): LoadedCatalog {
   return {
     rules,
     rooms: Object.fromEntries(roomFiles.map(({ room }) => [room.id, room])),
+    items,
     warnings
   }
 }

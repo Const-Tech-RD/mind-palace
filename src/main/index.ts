@@ -204,7 +204,9 @@ function start(): void {
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
   const palace = createPalaceView({ store: db, catalog, timeZone })
-  handle('palace:view', () => palace.view())
+  handle('palace:view', (request) => palace.view(request?.focus ?? null))
+  handle('palace:place', (change) => palace.place(change))
+  handle('palace:reset', ({ roomId, instance }) => palace.reset(roomId, instance))
   handle('palace:seen', ({ roomId }) => {
     palace.markSeen(roomId)
     return { seen: true }

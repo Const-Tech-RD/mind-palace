@@ -5,6 +5,8 @@
  */
 import type { Catalog, ShellTier } from './catalog'
 import { buildFloor, type FloorView } from './floor'
+import { dropTargets } from './editMode'
+import { resolvePlacements, type InventoryItem, type Placement, type ResolvedItem } from './placements'
 import {
   buildRoomEvents,
   computeRoomState,
@@ -25,6 +27,13 @@ export interface PalaceRoom {
   newItems: string[]
   /** The shell tier reached since the room was last looked at, if it changed. */
   newShell: ShellTier | null
+  /** Where each earned item stands after the user's placements. */
+  placed: ResolvedItem[]
+  /** Earned items not in the room right now, with the reason. */
+  inventory: InventoryItem[]
+  decay: RoomState['decay']
+  /** For the room editor, which has no catalog of its own: free slots per earned item, art variants per item. */
+  editor: { targets: Record<string, string[]>; variants: Record<string, string[]> }
 }
 
 export interface PalaceView {
@@ -63,14 +72,37 @@ export function buildPalace(input: {
   today: LocalDay
   /** Per room id, the keys stored at the last visit; missing or null = never visited. */
   seen: Readonly<Record<string, readonly string[] | null | undefined>>
+  /** The user's arrangement (`placements` rows); none means every item in its catalog slot. */
+  placements?: readonly Placement[]
+  /** The room zoomed into, whose back walls rise and show what hangs on them. */
+  focus?: string | null
 }): PalaceView {
   const events = buildRoomEvents(input.rows, input.timeZone)
   const rooms = Object.values(input.catalog.rooms).map((room) => {
     const state = computeRoomState(room.id, events, input.catalog, input.today)
     const fresh = newSince(input.seen[room.id] ?? null, state)
-    return { id: room.id, name: room.name, accent: room.accent, state, newItems: fresh.items, newShell: fresh.shell }
+    const resolved = resolvePlacements(state, input.placements ?? [], input.catalog)
+    const earned = [...resolved.placed.map((p) => p.instance), ...resolved.inventory.map((i) => i.instance)]
+    const items = new Set([...resolved.placed.map((p) => p.item), ...resolved.inventory.map((i) => i.item)])
+    const editor = {
+      targets: Object.fromEntries(earned.map((instance) => [instance, dropTargets(instance, resolved, input.catalog)])),
+      variants: Object.fromEntries([...items].map((item) => [item, input.catalog.items[item]?.variants ?? []]))
+    }
+    return {
+      editor,
+      id: room.id,
+      name: room.name,
+      accent: room.accent,
+      state,
+      newItems: fresh.items,
+      newShell: fresh.shell,
+      placed: resolved.placed,
+      inventory: resolved.inventory,
+      decay: state.decay
+    }
   })
-  return { today: input.today, rooms, floor: buildFloor(input.catalog, rooms, itemKey) }
+  const floorRooms = rooms.map((r) => ({ ...r, decay: r.decay.level }))
+  return { today: input.today, rooms, floor: buildFloor(input.catalog, floorRooms, input.focus ?? null) }
 }
 
 const SPECIAL_LABELS: Record<string, string> = {
@@ -164,4 +196,12 @@ export function currentRoomOf(
     if (best === null || at > best.at) best = { roomId: chat.roomId, at }
   }
   return best?.roomId ?? null
+}
+
+const DECAY_WORD: Record<1 | 2 | 3 | 4, string> = { 1: 'Dusty', 2: 'Cobwebs', 3: 'Mostly dark', 4: 'Dark' }
+
+/** What a room's decay means, in words, or null when the room is clean. */
+export function decayText(decay: RoomState['decay'], projectTitle: string | null): string | null {
+  if (decay.level === 0) return null
+  return `${DECAY_WORD[decay.level]}: ${decay.weekdaysQuiet} quiet weekdays on ${projectTitle ?? 'its quietest project'}`
 }
