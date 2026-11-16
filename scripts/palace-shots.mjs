@@ -74,10 +74,37 @@ function quietProject(db, roomId, weekdays) {
   ).run(`fx-${roomId}-quiet`, `Quiet ${roomId} project`, roomId, weekdaysAgo(weekdays), iso(90), iso(-365))
 }
 
+/** Rooms the person "made": the old placeholder rooms, rebuilt from library items, plus extras by id. */
+const ROOMS = {
+  coding: { name: 'Coding room', area: 'software', accent: 0, cell: [-1, -1], items: [['coding_laptop', 'desk_center'], ['coding_monitor', 'desk_center'], ['coding_whiteboard', 'wall_right_b'], ['coding_rack', 'corner_right'], ['coding_arcade', 'floor_right']] },
+  music: { name: 'Music studio', area: 'music', accent: 1, cell: [-1, 0], items: [['music_mic', 'beside_seat'], ['music_speakers', 'desk_left'], ['music_keyboard', 'floor_right'], ['music_guitar', 'corner_right'], ['music_mixer', 'desk_center']] },
+  art: { name: 'Art workshop', area: 'art', accent: 2, cell: [0, -1], items: [['art_sketchbook', 'desk_center'], ['art_easel', 'corner_right'], ['art_paint_cart', 'beside_seat'], ['art_pegboard', 'wall_right_b'], ['art_pottery_wheel', 'floor_right']] },
+  finance: { name: 'Finance', area: 'finance', accent: 3, cell: [-2, 0], items: [['finance_ledger', 'desk_center'], ['finance_chart', 'wall_right_b'], ['finance_safe', 'corner_right'], ['finance_filing_cabinet', 'floor_right']] }
+}
+function rooms(db, ids = ['coding', 'music', 'art']) {
+  const add = db.prepare('insert into rooms (id, name, area, accent, cell_x, cell_y, signature, classifier, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  ids.forEach((id, i) => {
+    const r = ROOMS[id]
+    const signature = JSON.stringify(r.items.map(([item, slot]) => ({ item, slots: [slot] })))
+    const classifier = JSON.stringify({ belongs: `Chats about ${r.area}.`, not_here: '', examples: [`A chat about ${r.area}`] })
+    add.run(id, r.name, r.area, r.accent, r.cell[0], r.cell[1], signature, classifier, iso(100 - i))
+  })
+}
+
 const fixtures = {
-  empty: { seed: () => {}, focus: ['coding'] },
+  empty: { seed: (db) => rooms(db), focus: ['coding'] },
+  alone: { seed: () => {}, focus: [] },
+  grown: {
+    seed: (db) => {
+      rooms(db, ['coding', 'music', 'art', 'finance'])
+      streak(db, 'finance', 8)
+      streak(db, 'coding', 5)
+    },
+    focus: ['finance']
+  },
   furnished: {
     seed: (db) => {
+      rooms(db)
       streak(db, 'coding', 34)
       goals(db, 'coding', 13)
       streak(db, 'music', 8)
@@ -91,6 +118,7 @@ const fixtures = {
   },
   decay: {
     seed: (db) => {
+      rooms(db)
       for (const room of ['coding', 'music', 'art', 'mailroom']) streak(db, room, 5)
       quietProject(db, 'coding', 8)
       quietProject(db, 'music', 15)
@@ -200,6 +228,7 @@ async function editorRun() {
     await quit(app)
     let db = new DatabaseSync(join(userData, 'mind-palace.sqlite'))
     db.prepare("insert or replace into settings (key, value) values ('timezone', ?)").run(TZ)
+    rooms(db)
     streak(db, 'coding', 2) // desk, chair (crate replaced), laptop
     db.close()
 

@@ -4,7 +4,7 @@ import 'pixi.js/unsafe-eval'
 import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
-import { iso, LOBBY as LOBBY_AT, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
+import { iso, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES } from './roomArt'
 import { boxOfRoom, fitCamera } from '@shared/camera'
 import { faceShades, shade } from '@shared/color'
@@ -210,25 +210,25 @@ async function loadTexture(url: string): Promise<Texture> {
 
 /** Where Nato stands in a room, and the way out of it towards the lobby, in room tiles. */
 const STAND: readonly [number, number] = [4.5, 5.6]
-const LOBBY: readonly [number, number] = [LOBBY_AT, LOBBY_AT]
-function wayOut(origin: readonly [number, number]): Array<[number, number]> {
-  const [ox, oy] = origin
-  // Leave by the side that faces a hallway, then follow the hallway to the lobby.
-  if (ox === 0) return [[ox + 7.6, oy + 4], [LOBBY_AT, oy + 4]]
-  return [[ox + 4, oy === 0 ? oy + 7.6 : oy + 0.4], [ox + 4, LOBBY_AT]]
+/** The way out of a room: to the hallway spot outside its door. */
+function wayOut(floor: FloorView, roomId: string | null): Array<[number, number]> {
+  const door = roomId ? floor.doors[roomId] : undefined
+  return door ? [[door[0], door[1]]] : []
 }
+/** Where walkers pass between rooms; with no hallways, the middle of the only room. */
+const lobbyOf = (floor: FloorView): [number, number] => (floor.lobby ? [floor.lobby[0], floor.lobby[1]] : [ROOM_TILES / 2, ROOM_TILES / 2])
 function standIn(roomId: string | undefined): readonly [number, number] {
   void roomId
   return STAND
 }
-function route(from: readonly [number, number] | null, to: readonly [number, number], stand: readonly [number, number]): Array<[number, number]> {
-  const end: [number, number] = [to[0] + stand[0], to[1] + stand[1]]
-  if (!from || (from[0] === to[0] && from[1] === to[1])) return [end]
-  return [...wayOut(from), [LOBBY[0], LOBBY[1]], ...wayOut(to).reverse(), end]
+function route(floor: FloorView, from: string | null, to: string, origin: readonly [number, number], stand: readonly [number, number]): Array<[number, number]> {
+  const end: [number, number] = [origin[0] + stand[0], origin[1] + stand[1]]
+  if (!from || from === to) return [end]
+  return [...wayOut(floor, from), lobbyOf(floor), ...wayOut(floor, to).reverse(), end]
 }
 
-/** Where the lobby's centrepiece stands (towards the back, clear of the front room's walls) and how wide it is drawn. */
-const LOBBY_SPOT = 8.8
+/** The lobby's centrepiece stands a little behind the lobby spot, clear of the front room's walls; this wide. */
+const LOBBY_BACK = 0.2
 const LOBBY_WIDTH = 104
 const WALK_SPEED = 7 // tiles per second
 const STROLL_SPEED = 1.6
@@ -295,7 +295,7 @@ export function PalaceCanvas({
     roomId: string | null
     nextStroll: number
     strolling: boolean
-  }>({ at: [LOBBY[0], LOBBY[1]], path: [], room: null, home: null, roomId: null, nextStroll: 0, strolling: false })
+  }>({ at: lobbyOf(floor), path: [], room: null, home: null, roomId: null, nextStroll: 0, strolling: false })
   const helpers = useRef<HelperSprite[]>([])
   const latest = useRef({ floor, focus, onPick, onLabels, agents, highlights, onSlot })
   latest.current = { floor, focus, onPick, onLabels, agents, highlights, onSlot }
@@ -461,14 +461,20 @@ export function PalaceCanvas({
     const halls = s.world.children[0] as Graphics
     halls.clear()
     for (const hall of floor.halls) drawFloor(halls, hall.x, hall.y, hall.w, hall.d, P.hallway)
+    if (floor.ethereal) {
+      // The suggested room: a faint floor and an outline where it would stand.
+      const [ex, ey] = floor.ethereal.origin
+      const corners = [iso(ex, ey), iso(ex + ROOM_TILES, ey), iso(ex + ROOM_TILES, ey + ROOM_TILES), iso(ex, ey + ROOM_TILES)]
+      halls.poly(pts(corners)).fill({ color: P.parchment, alpha: 0.08 }).stroke({ color: P.gold, width: 2, alpha: 0.55 })
+    }
     for (const old of s.rooms.removeChildren()) old.destroy({ children: true })
     helpers.current = []
     const frontMost = floor.rooms[floor.rooms.length - 1]
     for (const room of floor.rooms) {
-      if (room === frontMost) {
+      if (room === frontMost && floor.lobby) {
         // The lobby's centrepiece stands in front of the back rooms and behind the front one.
         const piece = new Sprite(s.textures.lobby)
-        const at = iso(LOBBY_SPOT, LOBBY_SPOT)
+        const at = iso(floor.lobby[0] - LOBBY_BACK, floor.lobby[1] - LOBBY_BACK)
         piece.anchor.set(0.42, 0.9)
         piece.scale.set(LOBBY_WIDTH / LOBBY_SPRITE.width)
         piece.position.set(at.x, at.y)
@@ -584,18 +590,28 @@ export function PalaceCanvas({
     if (!ready) return
     const target = natoRoom ? floor.rooms.find((r) => r.id === natoRoom)?.origin : undefined
     const w = walk.current
-    if (!target) {
-      if (w.room) w.path = [...wayOut(w.room), [LOBBY[0], LOBBY[1]]]
+    if (!target || !natoRoom) {
+      if (w.roomId) w.path = [...wayOut(floor, w.roomId), lobbyOf(floor)]
       w.room = null
       w.home = null
       w.roomId = null
       w.strolling = false
       return
     }
-    if (w.room && w.room[0] === target[0] && w.room[1] === target[1]) return
-    const stand = standIn(natoRoom ?? undefined)
-    w.path = route(w.room, target, stand)
-    if (!w.room) w.path = [...wayOut(target).reverse(), ...w.path]
+    const stand = standIn(natoRoom)
+    if (w.roomId === natoRoom) {
+      // Same room, but the palace grew and every room shifted: move with it.
+      if (w.room && (w.room[0] !== target[0] || w.room[1] !== target[1])) {
+        const [dx, dy] = [target[0] - w.room[0], target[1] - w.room[1]]
+        w.at = [w.at[0] + dx, w.at[1] + dy]
+        w.path = w.path.map(([x, y]) => [x + dx, y + dy])
+        w.room = target
+        w.home = [target[0] + stand[0], target[1] + stand[1]]
+      }
+      return
+    }
+    w.path = route(floor, w.roomId, natoRoom, target, stand)
+    if (!w.roomId) w.path = [...wayOut(floor, natoRoom).reverse(), ...w.path]
     w.room = target
     w.home = [target[0] + stand[0], target[1] + stand[1]]
     w.roomId = natoRoom
@@ -610,7 +626,7 @@ export function PalaceCanvas({
       const box = el.getBoundingClientRect()
       const cam = camera.current.now
       const tile = tileAt({ x: (event.clientX - box.left - cam.x) / cam.scale, y: (event.clientY - box.top - cam.y) / cam.scale })
-      return roomAt(tile.x, tile.y)
+      return roomAt(latest.current.floor, tile.x, tile.y)
     }
     let drag: { x: number; y: number; moved: boolean } | null = null
     const down = (event: PointerEvent): void => {

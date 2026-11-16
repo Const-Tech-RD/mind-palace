@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
-import { DOORWAY, HALL_TILES, iso, LOBBY, PALACE_TILES, TILE, ROOM_ORIGIN, roomAt, tileAt, WALL_FULL, WALL_LOW } from '../src/shared/floor'
+import { buildFloor, DOORWAY, HALL_TILES, iso, nextCell, TILE, roomAt, tileAt, WALL_FULL, WALL_LOW, type Cell } from '../src/shared/floor'
+import { catalogWithRooms } from '../src/shared/rooms'
+import { CODING } from './fixtures/rooms'
 import type { Placement } from '../src/shared/placements'
 import { buildPalace } from '../src/shared/palace'
 import { addDays } from './shared'
@@ -34,7 +36,7 @@ describe('iso', () => {
 describe('the hallways', () => {
   it('are 2 tiles wide, as plan v2 and the asset spec say', () => {
     expect(HALL_TILES).toBe(2)
-    expect(LOBBY).toBe(9)
+    expect(floorOf(empty).lobby).toEqual([9, 9])
   })
 
   it('only ever have low walls facing them, so no wall in front hides a room behind', () => {
@@ -51,22 +53,22 @@ describe('the connected floor', () => {
   it('is 18 x 18 with four rooms drawn back to front: coding, then art and music, then the mail room', () => {
     const floor = floorOf(empty)
     expect(floor.tiles).toBe(18)
-    expect(PALACE_TILES).toBe(18)
     expect(floor.rooms.map((r) => r.id)).toEqual(['coding', 'music', 'art', 'mailroom'])
     expect(floor.rooms.map((r) => r.origin)).toEqual([[0, 0], [0, 10], [10, 0], [10, 10]])
   })
 
   it('has two hallways that cross, and no room on them', () => {
     const floor = floorOf(empty)
-    expect(floor.halls).toEqual([{ x: 8, y: 0, w: 2, d: 18 }, { x: 0, y: 8, w: 18, d: 2 }])
-    expect(roomAt(3, 3)).toBe('coding')
-    expect(roomAt(11, 1)).toBe('art')
-    expect(roomAt(1, 11)).toBe('music')
-    expect(roomAt(17.9, 17.9)).toBe('mailroom')
-    expect(roomAt(8.5, 3)).toBeNull()
-    expect(roomAt(9.9, 3)).toBeNull()
-    expect(roomAt(3, 9)).toBeNull()
-    expect(roomAt(18, 3)).toBeNull()
+    // The same tiles as the two crossing hallways of the fixed four-room palace.
+    expect(hallTiles(floor.halls)).toEqual(hallTiles([{ x: 8, y: 0, w: 2, d: 18 }, { x: 0, y: 8, w: 18, d: 2 }]))
+    expect(roomAt(floor, 3, 3)).toBe('coding')
+    expect(roomAt(floor, 11, 1)).toBe('art')
+    expect(roomAt(floor, 1, 11)).toBe('music')
+    expect(roomAt(floor, 17.9, 17.9)).toBe('mailroom')
+    expect(roomAt(floor, 8.5, 3)).toBeNull()
+    expect(roomAt(floor, 9.9, 3)).toBeNull()
+    expect(roomAt(floor, 3, 9)).toBeNull()
+    expect(roomAt(floor, 18, 3)).toBeNull()
   })
 
   it('gives outer back walls full height and makes every wall onto a hallway low with a doorway', () => {
@@ -88,7 +90,7 @@ describe('the connected floor', () => {
   it('places the starting furniture of every room at its slot, offset by the room', () => {
     const floor = floorOf(empty)
     for (const room of floor.rooms) {
-      const [ox, oy] = ROOM_ORIGIN[room.id]!
+      const [ox, oy] = room.origin
       const desk = room.blocks.find((b) => b.item === 'base_desk')!
       expect([desk.x, desk.y, desk.w, desk.d, desk.z]).toEqual([ox + 2, oy, 3, 1, 0])
       const crate = room.blocks.find((b) => b.item === 'base_crate')!
@@ -188,3 +190,84 @@ describe('focus, placements and decay on the floor', () => {
   })
 })
 
+
+/** Every hallway tile as "x,y", sorted. */
+function hallTiles(halls: ReadonlyArray<{ x: number; y: number; w: number; d: number }>): string[] {
+  const tiles = new Set<string>()
+  for (const h of halls) for (let x = h.x; x < h.x + h.w; x++) for (let y = h.y; y < h.y + h.d; y++) tiles.add(`${x},${y}`)
+  return [...tiles].sort()
+}
+
+describe('a palace that grows', () => {
+  const only = (ids: string[]) => ({ ...catalog, rooms: Object.fromEntries(ids.map((id) => [id, catalog.rooms[id]!])) })
+  const floorFor = (cat: typeof catalog, ethereal: { cell: Cell; name: string } | null = null) =>
+    buildPalace({ catalog: cat, rows: empty, timeZone: 'UTC', today: TODAY, seen: {}, ethereal }).floor
+
+  it('fills cells behind and beside the Mail room, nearest first', () => {
+    const cells: Cell[] = [[0, 0]]
+    for (let i = 0; i < 8; i++) cells.push(nextCell(cells))
+    expect(cells.slice(1)).toEqual([[-1, 0], [0, -1], [-1, -1], [-2, 0], [0, -2], [-2, -1], [-1, -2], [-2, -2]])
+  })
+
+  it('never puts a room in front of the Mail room', () => {
+    const cells: Cell[] = [[0, 0]]
+    for (let i = 0; i < 20; i++) cells.push(nextCell(cells))
+    for (const [x, y] of cells) expect(x <= 0 && y <= 0).toBe(true)
+  })
+
+  it('starts as the Mail room alone: 8 x 8, no hallways, full back walls', () => {
+    const floor = floorFor(only(['mailroom']))
+    expect(floor.tiles).toBe(8)
+    expect(floor.halls).toEqual([])
+    expect(floor.lobby).toBeNull()
+    expect(floor.rooms[0]!.origin).toEqual([0, 0])
+    expect(floor.rooms[0]!.walls.filter((w) => !w.front).map((w) => w.height)).toEqual([WALL_FULL, WALL_FULL])
+    expect(floor.rooms[0]!.walls.filter((w) => w.front)).toEqual([])
+  })
+
+  it('makes a back wall low exactly where a room stands behind it', () => {
+    // Mail room and the music cell beside it on the left.
+    const floor = floorFor(only(['mailroom', 'music']))
+    const mail = floor.rooms.find((r) => r.id === 'mailroom')!
+    const music = floor.rooms.find((r) => r.id === 'music')!
+    expect(mail.walls.filter((w) => !w.front).map((w) => [w.along, w.height])).toEqual([['x', WALL_FULL], ['y', WALL_LOW]])
+    expect(music.walls.filter((w) => !w.front).map((w) => [w.along, w.height])).toEqual([['x', WALL_FULL], ['y', WALL_FULL]])
+    expect(music.walls.filter((w) => w.front).map((w) => [w.along, w.height])).toEqual([['y', WALL_LOW]])
+    expect(mail.walls.filter((w) => w.front)).toEqual([])
+    expect(floor.halls).toEqual([{ x: 8, y: 0, w: 2, d: 8 }])
+  })
+
+  it('keeps every room where it was when another is added', () => {
+    const fifth = { ...CODING, id: 'fifth', cell: [-2, 0] as [number, number], area: 'fifth' }
+    const before = floorFor(catalog)
+    const after = floorFor(catalogWithRooms(catalog, [fifth]))
+    for (const room of before.rooms) {
+      const moved = after.rooms.find((r) => r.id === room.id)!
+      // The whole palace shifts by one cell to make room on the left; no room moves against the others.
+      expect([moved.origin[0] - room.origin[0], moved.origin[1] - room.origin[1]]).toEqual([10, 0])
+    }
+    expect(after.rooms.find((r) => r.id === 'fifth')!.origin).toEqual([0, 10])
+    expect(after.tiles).toBe(28)
+  })
+
+  it('draws a suggested room in the next free cell and makes room for it', () => {
+    const floor = floorFor(only(['mailroom']), { cell: [-1, 0], name: '3D printing' })
+    expect(floor.ethereal).toEqual({ origin: [0, 0], cell: [-1, 0], name: '3D printing' })
+    expect(floor.rooms[0]!.origin).toEqual([10, 0])
+    expect(floor.halls).toEqual([{ x: 8, y: 0, w: 2, d: 8 }])
+    expect(floor.bounds.maxX).toBeGreaterThan(floorFor(only(["mailroom"])).bounds.maxX)
+  })
+
+  it('gives each room a door onto a hallway, on the way to the lobby', () => {
+    const floor = floorFor(catalog)
+    expect(floor.doors['coding']).toEqual([4, 9])
+    expect(floor.doors['mailroom']).toEqual([9, 14])
+    expect(Object.keys(floor.doors).sort()).toEqual(['art', 'coding', 'mailroom', 'music'])
+  })
+
+  it('builds the floor without any palace (no rooms at all)', () => {
+    const floor = buildFloor(catalog, [], null)
+    expect(floor.rooms).toEqual([])
+    expect(floor.halls).toEqual([])
+  })
+})

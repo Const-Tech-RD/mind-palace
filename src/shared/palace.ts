@@ -4,7 +4,7 @@
  * Pure: rows in, view model out.
  */
 import type { Catalog, ShellTier } from './catalog'
-import { buildFloor, type FloorView } from './floor'
+import { buildFloor, type Cell, type FloorView } from './floor'
 import { dropTargets } from './editMode'
 import { resolvePlacements, type InventoryItem, type Placement, type ResolvedItem } from './placements'
 import {
@@ -21,6 +21,7 @@ import {
 
 export interface PalaceRoom {
   id: string
+  cell: Cell
   name: string
   accent: string
   state: RoomState
@@ -79,6 +80,8 @@ export function buildPalace(input: {
   focus?: string | null
   /** What each room already earned (`room_progress`); unlocks never drop below it. */
   kept?: Readonly<Record<string, KeptProgress>>
+  /** The suggested room to draw as a ghost, in the cell it would take. */
+  ethereal?: { cell: Cell; name: string } | null
 }): PalaceView {
   const events = buildRoomEvents(input.rows, input.timeZone)
   const rooms = Object.values(input.catalog.rooms).map((room) => {
@@ -93,6 +96,7 @@ export function buildPalace(input: {
     }
     return {
       editor,
+      cell: room.cell,
       id: room.id,
       name: room.name,
       accent: room.accent,
@@ -105,7 +109,7 @@ export function buildPalace(input: {
     }
   })
   const floorRooms = rooms.map((r) => ({ ...r, decay: r.decay.level }))
-  return { today: input.today, rooms, floor: buildFloor(input.catalog, floorRooms, input.focus ?? null) }
+  return { today: input.today, rooms, floor: buildFloor(input.catalog, floorRooms, input.focus ?? null, input.ethereal ?? null) }
 }
 
 const SPECIAL_LABELS: Record<string, string> = {
