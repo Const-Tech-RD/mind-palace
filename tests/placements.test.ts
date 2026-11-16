@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkPlacement, fits, instanceKey, resolvePlacements, type Placement } from '../src/shared/placements'
+import { checkPlacement, fits, instanceKey, nextPlacement, resolvePlacements, type Placement } from '../src/shared/placements'
 import { catalog, chatsOn, goalOn, run } from './helpers'
 import { computeRoomState, type RoomEvent } from './shared'
 
@@ -145,3 +145,39 @@ describe('checkPlacement', () => {
     expect(instanceKey({ item: 'trophy', slot: 'trophy_shelf', index: 2 })).toBe('trophy@trophy_shelf#2')
   })
 })
+
+describe('review fixes', () => {
+  const state = stateAfter('coding', 13, 5)
+
+  it('refuses to show a hidden item whose spot the user has since filled', () => {
+    const rows = [row('coding', 'base_chair@seat#0', { hidden: true }), row('coding', 'base_plant_small@plant#0', { slot: 'seat' })]
+    // The plant really stands on the seat now.
+    expect(resolvePlacements(state, rows, catalog).placed.find((p) => p.item === 'base_plant_small')!.slot).toBe('seat')
+    expect(checkPlacement({ roomId: 'coding', instance: 'base_chair@seat#0', hidden: false }, state, rows, catalog)).toEqual({
+      ok: false,
+      reason: expect.stringMatching(/taken/)
+    })
+  })
+
+  it('refuses to move an item back to its default spot when someone else stands there', () => {
+    const rows = [row('coding', 'base_chair@seat#0', { slot: 'beside_seat' }), row('coding', 'base_floor_lamp@lamp#0', { slot: 'seat' })]
+    expect(checkPlacement({ roomId: 'coding', instance: 'base_chair@seat#0', slot: null }, state, rows, catalog).ok).toBe(false)
+    expect(checkPlacement({ roomId: 'coding', instance: 'base_chair@seat#0', slot: 'seat' }, state, rows, catalog).ok).toBe(false)
+  })
+
+  it('refuses a desk-top spot while the desk is hidden', () => {
+    const rows = [row('coding', 'base_desk@desk#0', { hidden: true })]
+    expect(checkPlacement({ roomId: 'coding', instance: 'coding_monitor@desk_center#0', slot: 'desk_left' }, state, rows, catalog)).toEqual({
+      ok: false,
+      reason: expect.stringMatching(/needs/)
+    })
+  })
+
+  it('shows an item that is moved, unless the change says otherwise', () => {
+    const hidden = row('coding', 'base_chair@seat#0', { hidden: true })
+    expect(nextPlacement(hidden, { roomId: 'coding', instance: hidden.instance, slot: 'beside_seat' })).toMatchObject({ slot: 'beside_seat', hidden: false })
+    expect(nextPlacement(hidden, { roomId: 'coding', instance: hidden.instance, variant: 'oak' })).toMatchObject({ variant: 'oak', hidden: true })
+    expect(nextPlacement(undefined, { roomId: 'coding', instance: hidden.instance, hidden: true })).toMatchObject({ slot: null, variant: null, hidden: true })
+  })
+})
+

@@ -125,6 +125,20 @@ export interface PlacementChange {
 
 export type PlacementCheck = { ok: true } | { ok: false; reason: string }
 
+/**
+ * The row an item has after a change. Only the fields given change, except
+ * that moving an item to a spot also shows it unless the change says otherwise.
+ */
+export function nextPlacement(current: Placement | undefined, change: PlacementChange): Placement {
+  return {
+    roomId: change.roomId,
+    instance: change.instance,
+    slot: change.slot !== undefined ? change.slot : (current?.slot ?? null),
+    variant: change.variant !== undefined ? change.variant : (current?.variant ?? null),
+    hidden: change.hidden ?? (change.slot != null ? false : (current?.hidden ?? false))
+  }
+}
+
 export function checkPlacement(change: PlacementChange, state: RoomState, rows: readonly Placement[], catalog: Catalog): PlacementCheck {
   const slots = catalog.rules.layout.slots
   const earned = [...state.items, ...state.replaced].find((p) => instanceKey(p) === change.instance)
@@ -136,16 +150,25 @@ export function checkPlacement(change: PlacementChange, state: RoomState, rows: 
     return { ok: false, reason: `"${earned.item}" has no variant "${change.variant}"` }
   }
 
-  const target = change.slot
-  if (target != null && target !== earned.slot) {
-    const hosts = hostSlots(catalog)
+  // Judge where the item really ends up, not only the fields the change names:
+  // showing it, or sending it back to its default spot, must not bump anything.
+  const current = rows.find((r) => r.roomId === change.roomId && r.instance === change.instance)
+  const next = nextPlacement(current, change)
+  if (next.hidden) return { ok: true }
+  const target = next.slot ?? earned.slot
+  const hosts = hostSlots(catalog)
+  const slot = slots[target]
+  if (!slot) return { ok: false, reason: `there is no slot "${target}"` }
+  if (target !== earned.slot) {
     if (hosts.has(earned.slot)) return { ok: false, reason: `"${earned.item}" carries other things and cannot be moved; hide it instead` }
-    const slot = slots[target]
-    if (!slot) return { ok: false, reason: `there is no slot "${target}"` }
     if (hosts.has(target)) return { ok: false, reason: `slot "${target}" is reserved for what stands on it` }
     if (!fits(def, slot)) return { ok: false, reason: `"${earned.item}" does not fit in slot "${target}"` }
-    const others = resolvePlacements(state, rows, catalog).placed.filter((p) => p.slot === target && p.instance !== change.instance)
-    if (others.length >= capacityOf(slot)) return { ok: false, reason: `slot "${target}" is taken by ${others.map((p) => p.item).join(', ')}` }
+  }
+  const placed = resolvePlacements(state, rows, catalog).placed
+  const others = placed.filter((p) => p.slot === target && p.instance !== change.instance)
+  if (others.length >= capacityOf(slot)) return { ok: false, reason: `slot "${target}" is taken by ${others.map((p) => p.item).join(', ')}` }
+  if (slot.host !== undefined && !placed.some((p) => p.slot === slot.host && p.instance !== change.instance)) {
+    return { ok: false, reason: `slot "${target}" needs what it stands on, which is not in the room` }
   }
   return { ok: true }
 }

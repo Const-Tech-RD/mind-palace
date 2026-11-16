@@ -3,7 +3,7 @@ import type { Catalog } from '@shared/catalog'
 import { buildPalace, seenKeys, type PalaceView } from '@shared/palace'
 import type { Store } from '../db/client'
 import { and, eq } from 'drizzle-orm'
-import { checkPlacement, type Placement, type PlacementChange } from '@shared/placements'
+import { checkPlacement, nextPlacement, type Placement, type PlacementChange } from '@shared/placements'
 import { chats, goalCompletions, messages, placements, projects } from '../db/schema'
 
 const seenSetting = (roomId: string): string => `palace.seen.${roomId}`
@@ -71,14 +71,7 @@ export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZon
       const check = checkPlacement(change, room.state, rows, catalog)
       if (!check.ok) throw new Error(check.reason)
       const current = rows.find((r) => r.roomId === change.roomId && r.instance === change.instance)
-      const next = {
-        roomId: change.roomId,
-        instance: change.instance,
-        slot: change.slot !== undefined ? change.slot : (current?.slot ?? null),
-        variant: change.variant !== undefined ? change.variant : (current?.variant ?? null),
-        hidden: change.hidden ?? current?.hidden ?? false,
-        updatedAt: now().toISOString()
-      }
+      const next = { ...nextPlacement(current, change), updatedAt: now().toISOString() }
       store.db.insert(placements).values(next).onConflictDoUpdate({ target: [placements.roomId, placements.instance], set: next }).run()
       return view(change.roomId)
     },
