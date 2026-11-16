@@ -1,0 +1,17 @@
+{
+  "note": "mirror: pieces drawn with their long side the other way round from their footprint. Which item each piece on a Gemini sheet is, left to right. Sheets live in ../mind-palace-art/sheets (outside the repo). Fit with: python scripts/fit_sprites.py",
+  "sheets": [
+    { "file": "s01.jpg", "items": ["base_desk", "base_chair", "base_crate", "base_bookshelf_low"], "mirror": ["base_bookshelf_low"] },
+    { "file": "s02.jpg", "items": ["base_bookshelf_tall", "base_couch", "base_side_table", "base_floor_lamp"], "mirror": ["base_bookshelf_tall", "base_couch"] },
+    { "file": "s03.jpg", "items": ["base_plant_small", "base_plant_large", "cardboard_box", "trophy"] },
+    { "file": "s04.jpg", "items": ["base_rug"] },
+    { "file": "s05.jpg", "items": ["base_poster", "window", "trophy_shelf", "coding_whiteboard"] },
+    { "file": "s06.jpg", "items": ["art_pegboard", "finance_chart", "print3d_filament_rack", "mail_sorting_shelf"] },
+    { "file": "s07.jpg", "items": ["coding_laptop", "coding_monitor", "music_speakers", "music_mixer"] },
+    { "file": "s08.jpg", "items": ["art_sketchbook", "finance_ledger", "finance_calculator", "print3d_calipers", "mail_letter_tray"] },
+    { "file": "s09.jpg", "items": ["coding_rack", "coding_arcade", "music_mic", "music_guitar"] },
+    { "file": "s10.jpg", "items": ["music_keyboard", "art_easel", "art_paint_cart", "art_pottery_wheel"], "mirror": ["music_keyboard"] },
+    { "file": "s11.jpg", "items": ["finance_safe", "finance_filing_cabinet", "print3d_printer", "print3d_spool_bin"] },
+    { "file": "s12.jpg", "items": ["print3d_part_shelf", "mail_parcel_stack"] }
+  ]
+}
