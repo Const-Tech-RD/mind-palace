@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AGENT_LABEL, roomAgents, type RoomAgent } from '@shared/agents'
 import { activeToday, currentRoomOf, decayText, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
 import { useStore } from '../store'
@@ -7,11 +7,14 @@ import { iso } from '@shared/floor'
 import { CHAT_DRAG_TYPE, PalaceCanvas, type CanvasCamera, type CanvasLabel } from './PalaceCanvas'
 import { HOTSPOT_ACTION, ROOM_HOTSPOTS, type Hotspot } from './roomHotspots'
 import { RoomPanel } from './RoomPanel'
+import { PalaceGuide, usePalaceGuide } from './PalaceGuide'
 import { PalaceList, RoomSummary } from './PalaceList'
 import { InventoryDrawer } from './InventoryDrawer'
 import { ROOM_CUT, ROOM_IMAGE } from './roomArt'
 
 const MAX_TROPHIES = 5
+/** How long Nato gets to walk towards a thing before it opens. */
+const WALK_TO_THING_MS = 450
 
 function Trophy({ earned }: { earned: boolean }) {
   return (
@@ -161,11 +164,16 @@ export function PalaceView() {
   const startChatIn = useStore((s) => s.startChatIn)
   const showProjects = useStore((s) => s.showProjects)
   const moveChat = useStore((s) => s.moveChat)
+  const projectAction = useStore((s) => s.projectAction)
   const [labels, setLabels] = useState<CanvasLabel[]>([])
   const [camera, setCamera] = useState<CanvasCamera | null>(null)
   /** The thing that was clicked and whose card is open; `roomId` null is the palace-wide reminders card. */
   const [panel, setPanel] = useState<{ roomId: string | null; hotspot: Hotspot } | null>(null)
   const closePanel = useCallback(() => setPanel(null), [])
+  const guide = usePalaceGuide()
+  const [walkTo, setWalkTo] = useState<{ x: number; y: number; n: number } | null>(null)
+  const walkTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(walkTimer.current), [])
   const dropChat = useCallback((toRoom: string, chatId: string) => void moveChat(chatId, toRoom), [moveChat])
   const refreshPalace = useStore((s) => s.refreshPalace)
   const [hovered, setHovered] = useState<string | null>(null)
@@ -178,6 +186,8 @@ export function PalaceView() {
     setEditing(false)
     setSelected(null)
     setPanel(null)
+    setWalkTo(null)
+    window.clearTimeout(walkTimer.current)
   }, [roomId])
   // Map or plain list, remembered per viewer; reduced motion starts on the list until someone chooses.
   const [mode, setMode] = useState<'scene' | 'list'>(() => {
@@ -230,9 +240,22 @@ export function PalaceView() {
       : []
   const openHotspot = (hotspot: Hotspot): void => {
     if (!room) return
-    if (hotspot.kind === 'chat') startChatIn(room.id)
-    else if (hotspot.kind === 'exit') void showPalace(null)
-    else setPanel(panel?.hotspot.id === hotspot.id ? null : { roomId: room.id, hotspot })
+    if (panel?.hotspot.id === hotspot.id) {
+      setPanel(null)
+      return
+    }
+    // Nato walks over to the thing first; what it does happens when he is on his way there.
+    const roomIdNow = room.id
+    setWalkTo((prev) => ({ x: hotspot.at[0], y: hotspot.at[1], n: (prev?.n ?? 0) + 1 }))
+    window.clearTimeout(walkTimer.current)
+    walkTimer.current = window.setTimeout(
+      () => {
+        if (hotspot.kind === 'chat') startChatIn(roomIdNow)
+        else if (hotspot.kind === 'exit') void showPalace(null)
+        else setPanel({ roomId: roomIdNow, hotspot })
+      },
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : WALK_TO_THING_MS
+    )
   }
   const REMINDERS_CARD: Hotspot = { id: 'palace-reminders', kind: 'reminders', thing: 'The whole palace', at: [0, 0] }
 
@@ -313,6 +336,15 @@ export function PalaceView() {
           <div className="ml-auto flex shrink-0 gap-1.5" data-testid="palace-shortcuts">
           <button
             type="button"
+            onClick={guide.show}
+            aria-label="How the palace works"
+            title="How the palace works"
+            className="flex size-7 items-center justify-center self-center rounded-full border border-brass/50 text-xs font-bold text-muted hover:bg-raised hover:text-paper"
+          >
+            ?
+          </button>
+          <button
+            type="button"
             onClick={() => void selectChat(null)}
             className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-ink shadow hover:bg-brass-light"
           >
@@ -362,6 +394,40 @@ export function PalaceView() {
                   New in this room: {news.join(', ')}.
                 </p>
               )}
+              {room && room.decay.level > 0 && room.decay.projectId && (
+                <div key="dust" data-testid="room-dust" className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brass/40 bg-ink-soft px-4 py-2 text-sm">
+                  <p className="min-w-0 flex-1">
+                    <span className="font-semibold">This room is gathering dust.</span>{' '}
+                    <span className="text-muted">
+                      “{projectTitle(room.decay.projectId) ?? 'A project'}” has been quiet for {room.decay.weekdaysQuiet} weekdays. Work on it, or put it away, and
+                      the light comes back.
+                    </span>
+                  </p>
+                  {(() => {
+                    const project = projects.find((p) => p.id === room.decay.projectId)
+                    const chatId = project?.chatIds[0]
+                    return (
+                      <>
+                        {chatId && (
+                          <button type="button" onClick={() => void selectChat(chatId)} className="rounded-full bg-gold px-3 py-1 text-xs font-semibold text-ink hover:bg-brass-light">
+                            Open it
+                          </button>
+                        )}
+                        {(['pause', 'done', 'drop'] as const).map((action) => (
+                          <button
+                            key={action}
+                            type="button"
+                            onClick={() => void projectAction(room.decay.projectId!, action)}
+                            className="rounded-full border border-brass/50 px-3 py-1 text-xs hover:bg-raised"
+                          >
+                            {action === 'pause' ? 'Pause' : action === 'done' ? 'Done' : 'Drop'}
+                          </button>
+                        ))}
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
               <figure
                 key="stage"
                 className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-brass/35 bg-ink"
@@ -378,6 +444,7 @@ export function PalaceView() {
                     onHover={setHovered}
                     arranging={editing && room ? room.id : null}
                     onCamera={setCamera}
+                    walkTo={walkTo}
                     onDropChat={dropChat}
                     highlights={editing && selected && room ? (room.editor.targets[selected] ?? []) : undefined}
                     onSlot={(slot) => {
@@ -443,6 +510,11 @@ export function PalaceView() {
                           )}
                           {r.state.streak.current > 0 && <span className="text-muted">{r.state.streak.current}d</span>}
                           {count > 0 && <span className="text-muted">· {count} project{count === 1 ? '' : 's'}</span>}
+                          {r.decay.level > 0 && (
+                            <span className="rounded-full bg-paper/15 px-1.5 text-[10px] text-muted" title={decayText(r.decay, projectTitle(r.decay.projectId)) ?? undefined}>
+                              dusty
+                            </span>
+                          )}
                           {isNew && <span className="palace-new rounded-full bg-gold px-1.5 text-[10px] font-semibold text-ink">New</span>}
                         </span>
                       </button>
@@ -540,6 +612,8 @@ export function PalaceView() {
                       />
                     )
                   })()}
+
+                {guide.open && <PalaceGuide onClose={guide.close} />}
 
                 <span className="sr-only" role="img" aria-label={natoRoomName ? `Nato, in the ${natoRoomName}` : 'Nato, in the lobby'} />
               </figure>

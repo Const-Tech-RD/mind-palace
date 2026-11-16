@@ -268,13 +268,18 @@ function drawTargets(layer: Container, room: FloorRoom, slots: FloorView['slots'
   layer.addChild(g)
 }
 
+/** How much of the decay's grey and darkness a painted room takes. */
+const PAINTED_DECAY = 0.55
+
 /** Greys the room from level 1 and dims it from level 3; `light` overrides the darkness (flicker, lights back on). */
-function decayFilter(level: DecayLevel, light?: number): ColorMatrixFilter | null {
-  const dark = light ?? darknessOf(level)
+function decayFilter(level: DecayLevel, light?: number, painted = false): ColorMatrixFilter | null {
+  // A painting is the room's whole look, so decay takes less of it away than it does from plain blocks:
+  // it must still read as that room, only neglected.
+  const dark = (light ?? darknessOf(level)) * (painted ? PAINTED_DECAY : 1)
   if (level === 0 && dark === 0) return null
   const filter = new ColorMatrixFilter()
   filter.resolution = 'inherit'
-  filter.saturate(level >= 3 ? -0.7 : level === 2 ? -0.55 : level === 1 ? -0.35 : 0, false)
+  filter.saturate((level >= 3 ? -0.7 : level === 2 ? -0.55 : level === 1 ? -0.35 : 0) * (painted ? PAINTED_DECAY : 1), false)
   if (dark > 0) filter.brightness(1 - dark, true)
   return filter
 }
@@ -289,12 +294,15 @@ async function loadTexture(url: string): Promise<Texture> {
 }
 
 /**
- * The front room's painting with the top of its back corner dissolved away.
- * On the map that corner stands in front of the lobby; opened up, the plaza
- * and whoever is walking across it show through. The room itself is drawn
- * whole as soon as it is opened.
+ * The front room's painting with a notch cut out of its back corner. On the
+ * map that corner stands in front of the lobby; with the two walls cut down
+ * towards the corner, like a section drawing, the plaza and whoever crosses it
+ * show through. The room is drawn whole as soon as it is opened.
  */
-async function loadOpenedTexture(url: string, cut: { anchorX: number; scale: number; floor: readonly (readonly [number, number])[] }): Promise<Texture> {
+async function loadOpenedTexture(
+  url: string,
+  cut: { anchorX: number; anchorY: number; scale: number; top: number; floor: readonly (readonly [number, number])[] }
+): Promise<Texture> {
   const image = new Image()
   image.src = url
   await image.decode()
@@ -304,19 +312,43 @@ async function loadOpenedTexture(url: string, cut: { anchorX: number; scale: num
   const ctx = canvas.getContext('2d')
   if (!ctx) return Texture.from({ resource: image, autoGenerateMipmaps: true })
   ctx.drawImage(image, 0, 0)
-  const apexX = cut.anchorX + cut.floor[0]![0] * cut.scale
-  const radius = OPENING_RADIUS * cut.scale
-  const hole = ctx.createRadialGradient(apexX, radius * 0.12, 0, apexX, radius * 0.12, radius)
-  hole.addColorStop(0, 'rgb(0 0 0 / 1)')
-  hole.addColorStop(0.6, 'rgb(0 0 0 / 1)')
-  hole.addColorStop(1, 'rgb(0 0 0 / 0)')
+  // In the cut-out's own pixels: the top of the corner, and the tops of the two walls at their far ends.
+  const px = ([x, y]: readonly [number, number]): [number, number] => [cut.anchorX + x * cut.scale, cut.anchorY + y * cut.scale]
+  const [back, right, , left] = cut.floor as [readonly [number, number], readonly [number, number], readonly [number, number], readonly [number, number]]
+  const wall = back[1] - cut.top
+  const apex = px([back[0], cut.top])
+  const along = (end: readonly [number, number]): [number, number] => {
+    const top = px([end[0], end[1] - wall])
+    return [apex[0] + (top[0] - apex[0]) * NOTCH.reach, apex[1] + (top[1] - apex[1]) * NOTCH.reach]
+  }
+  const low: [number, number] = [apex[0], apex[1] + NOTCH.depth * cut.scale]
+  const [l, r] = [along(left), along(right)]
   ctx.globalCompositeOperation = 'destination-out'
-  ctx.fillStyle = hole
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.beginPath()
+  // A little above the picture's edge, so nothing of the corner's top is left behind.
+  ctx.moveTo(l[0], l[1] - 6 * cut.scale)
+  ctx.lineTo(apex[0], apex[1] - 12 * cut.scale)
+  ctx.lineTo(r[0], r[1] - 6 * cut.scale)
+  ctx.lineTo(r[0], r[1])
+  ctx.lineTo(low[0], low[1])
+  ctx.lineTo(l[0], l[1])
+  ctx.closePath()
+  ctx.fill()
+  // The cut edge, in the paintings' outline colour.
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.beginPath()
+  ctx.moveTo(l[0], l[1])
+  ctx.lineTo(low[0], low[1])
+  ctx.lineTo(r[0], r[1])
+  ctx.strokeStyle = `#${P.outline.toString(16).padStart(6, '0')}`
+  ctx.lineWidth = 2.2 * cut.scale
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.stroke()
   return Texture.from({ resource: canvas, autoGenerateMipmaps: true })
 }
-/** How far the opening reaches from the top of the front room's back corner, in logical pixels. */
-const OPENING_RADIUS = 150
+/** The notch: how far along each wall it starts (0 to 1 from the corner), and how deep it goes at the corner, in logical pixels. */
+const NOTCH = { reach: 0.7, depth: 142 } as const
 
 /** Where Nato stands in a room, and the way out of it towards the lobby, in room tiles. */
 const STAND: readonly [number, number] = [4.5, 5.6]
@@ -372,7 +404,8 @@ export function PalaceCanvas({
   onSlot,
   arranging = null,
   onCamera,
-  onDropChat
+  onDropChat,
+  walkTo = null
 }: {
   floor: FloorView
   /** The room zoomed into, or null for the whole palace. */
@@ -394,6 +427,11 @@ export function PalaceCanvas({
   onCamera?: (camera: CanvasCamera) => void
   /** A chat dragged from the list was dropped on a room. */
   onDropChat?: (roomId: string, chatId: string) => void
+  /**
+   * Somewhere in the focused room for Nato to walk to, in logical pixels from
+   * the room's back corner; `n` changes on every request so the same spot can be asked for twice.
+   */
+  walkTo?: { x: number; y: number; n: number } | null
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
@@ -404,6 +442,8 @@ export function PalaceCanvas({
     world: Container
     rooms: Container
     nato: Sprite | null
+    /** Nato and his shadow: one node, re-ordered among the rooms so walls in front of him cover him. */
+    actor: Container | null
     textures: { walk: Texture[]; sit: Texture; helpers: Record<string, Texture>; lobby: Texture; rooms: Record<string, Texture>; opened: Record<string, Texture> } | null
   } | null>(null)
   const camera = useRef<{ now: Camera; goal: Camera; free: boolean }>({ now: { scale: 1, x: 0, y: 0 }, goal: { scale: 1, x: 0, y: 0 }, free: false })
@@ -426,6 +466,10 @@ export function PalaceCanvas({
   const decayLevels = useRef(new Map<string, DecayLevel>())
   const roomLayers = useRef(new Map<string, Container>())
   const fades = useRef(new Map<string, Fade>())
+  const paintedRooms = useRef(new Map<string, boolean>())
+  /** The room layers in the order they are drawn, to place Nato among them. */
+  const drawOrder = useRef<Array<{ origin: readonly [number, number]; node: Container }>>([])
+  const placedBefore = useRef<Container | undefined>(undefined)
 
   /** The camera that shows a room, or the whole floor, inside the stage. */
   const cameraFor = (roomId: string | null): Camera => {
@@ -463,7 +507,7 @@ export function PalaceCanvas({
       const top = new Container()
       world.addChild(halls, rooms, top)
       app.stage.addChild(world)
-      stage.current = { app, world, rooms, nato: null, textures: null }
+      stage.current = { app, world, rooms, nato: null, actor: null, textures: null }
 
       camera.current.now = cameraFor(latest.current.focus)
       camera.current.goal = camera.current.now
@@ -493,8 +537,11 @@ export function PalaceCanvas({
       nato.anchor.set(0.5, 0.985)
       const natoScale = CHARACTER_HEIGHT / NATO_FRAMES.figureHeight
       nato.scale.set(natoScale)
-      top.addChild(shadow, nato)
+      const actor = new Container()
+      actor.addChild(shadow, nato)
+      top.addChild(actor)
       stage.current.nato = nato
+      stage.current.actor = actor
       stage.current.textures = textures
 
       let last = ''
@@ -544,6 +591,8 @@ export function PalaceCanvas({
           w.strolling = false
           w.nextStroll = clock + 3 + Math.random() * 6
         }
+        // After walking somewhere on request he waits there a while before strolling again.
+        if (!walking && w.nextStroll === Infinity) w.nextStroll = clock + 8 + Math.random() * 6
         // On screen, x - y is left to right: he turns to face the way he is going.
         if (Math.abs(facing) > 0.01) nato.scale.x = natoScale * (facing < 0 ? -1 : 1)
         const spot = iso(w.at[0], w.at[1])
@@ -559,6 +608,22 @@ export function PalaceCanvas({
         nato.scale.y = natoScale * (walking ? 1 : 1 + breath * 0.012)
         shadow.position.set(spot.x, spot.y)
         shadow.scale.set(walking && lifted ? 0.85 : 1)
+
+        // He is drawn among the rooms, not over them: after the room he is in, or just before the
+        // first room whose back walls he is behind, so a wall in front of him covers him.
+        const drawn = drawOrder.current
+        if (drawn.length > 0) {
+          const [nx, ny] = w.at
+          const inside = drawn.findIndex(({ origin: [ox, oy] }) => nx >= ox && nx < ox + ROOM_TILES && ny >= oy && ny < oy + ROOM_TILES)
+          const behind = drawn.findIndex(({ origin: [ox, oy] }) => (nx < ox && ny < oy + ROOM_TILES) || (ny < oy && nx < ox + ROOM_TILES))
+          const before = inside >= 0 ? drawn[inside + 1]?.node : behind >= 0 ? drawn[behind]!.node : undefined
+          if (actor.parent !== rooms || before !== placedBefore.current) {
+            placedBefore.current = before
+            if (actor.parent) actor.parent.removeChild(actor)
+            if (before && before.parent === rooms) rooms.addChildAt(actor, rooms.getChildIndex(before))
+            else rooms.addChild(actor)
+          }
+        }
 
         // Helpers move according to what they are doing.
         if (!reducedMotion) {
@@ -607,8 +672,12 @@ export function PalaceCanvas({
     const halls = s.world.children[0] as Graphics
     halls.clear()
     drawWalkways(halls, floor, Object.fromEntries(floor.rooms.map((r) => [r.id, accentOf(r)])))
+    // Nato lives among the room layers; take him out before they are rebuilt.
+    if (s.actor?.parent) s.actor.parent.removeChild(s.actor)
     for (const old of s.rooms.removeChildren()) old.destroy({ children: true })
     helpers.current = []
+    drawOrder.current = []
+    placedBefore.current = undefined
     const frontMost = floor.rooms[floor.rooms.length - 1]
     for (const room of floor.rooms) {
       if (room === frontMost) {
@@ -625,6 +694,7 @@ export function PalaceCanvas({
       // Zoomed into a room, the others step back so their walls do not crowd the view.
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
+      drawOrder.current.push({ origin: room.origin, node: layer })
       const painted = ROOM_CUT[room.id] !== undefined && arranging !== room.id
       // On the map the front room is drawn opened up, so the lobby behind its corner shows.
       const picture = painted ? ((focus === null && s.textures.opened[room.id]) || s.textures.rooms[room.id]) : undefined
@@ -633,7 +703,8 @@ export function PalaceCanvas({
       if (focus === room.id && highlights && highlights.length > 0) drawTargets(layer, room, floor.slots, highlights)
       const before = decayLevels.current.get(room.id)
       decayLevels.current.set(room.id, room.decay)
-      const filter = decayFilter(room.decay)
+      paintedRooms.current.set(room.id, painted)
+      const filter = decayFilter(room.decay, undefined, painted)
       if (filter) layer.filters = [filter]
       roomLayers.current.set(room.id, layer)
       if (before !== undefined && before >= 3 && room.decay < 3 && !reducedMotion) {
@@ -649,11 +720,11 @@ export function PalaceCanvas({
           const dark = fadeDarkness(fade, performance.now(), LIGHTS_ON_MS)
           if (dark <= 0) {
             fades.current.delete(id)
-            const settled = decayFilter(level)
+            const settled = decayFilter(level, undefined, paintedRooms.current.get(id))
             if (current) setFiltersIfAlive(current, settled ? [settled] : [])
             return
           }
-          if (current) setFiltersIfAlive(current, [decayFilter(level, dark) ?? new ColorMatrixFilter()])
+          if (current) setFiltersIfAlive(current, [decayFilter(level, dark, paintedRooms.current.get(id)) ?? new ColorMatrixFilter()])
           requestAnimationFrame(step)
         }
         requestAnimationFrame(step)
@@ -693,9 +764,9 @@ export function PalaceCanvas({
           window.setTimeout(() => {
             const layer = roomLayers.current.get(room.id)
             if (layer && !layer.destroyed) {
-              setFiltersIfAlive(layer, [decayFilter(room.decay, FLICKER.alpha)!])
+              setFiltersIfAlive(layer, [decayFilter(room.decay, FLICKER.alpha, paintedRooms.current.get(room.id))!])
               timers.push(window.setTimeout(() => {
-                setFiltersIfAlive(layer, [decayFilter(room.decay)!])
+                setFiltersIfAlive(layer, [decayFilter(room.decay, undefined, paintedRooms.current.get(room.id))!])
               }, FLICKER.ms))
             }
             schedule()
@@ -751,6 +822,21 @@ export function PalaceCanvas({
     w.roomId = natoRoom
     w.strolling = false
   }, [ready, natoRoom, floor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // He walks to a thing that was clicked: to the nearest spot on the room's floor in front of it.
+  useEffect(() => {
+    if (!ready || !walkTo || !focus) return
+    const room = floor.rooms.find((r) => r.id === focus)
+    const w = walk.current
+    if (!room || !w.room || w.room[0] !== room.origin[0] || w.room[1] !== room.origin[1]) return
+    const tile = tileAt({ x: walkTo.x, y: walkTo.y + 16 })
+    const clamp = (v: number): number => Math.max(0.7, Math.min(ROOM_TILES - 0.7, v))
+    const spot: [number, number] = [room.origin[0] + clamp(tile.x), room.origin[1] + clamp(tile.y)]
+    w.path = [spot]
+    w.home = spot
+    w.strolling = false
+    w.nextStroll = Infinity
+  }, [ready, walkTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pointer: hover outlines a room, a click enters it, drag pans, the wheel zooms.
   useEffect(() => {

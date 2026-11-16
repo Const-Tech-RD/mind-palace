@@ -536,3 +536,15 @@ Nato asked for the places the avatar walks to be designed, and for a tidier map.
 - **The map's buttons** (New chat, List view, reminders, active projects) moved from over the map to the Palace header, where they no longer cover the Coding room's label.
 
 Verified: typecheck, 338 unit tests (4 new for the walkways), E2E S5 9/9, the editor check 4/4, a screenshot of the map. Not verified: S1 to S4 after this change; how the opened corner looks while the Mail room is in decay.
+
+## Five of seven polish items (2026-11-16)
+
+Nato asked for seven improvements one by one. Items 1 (painted walkways) and 7 (a painted surround) need new art from Gemini and are not done: neither Chrome window connected at the time was the profile used for generation.
+
+- **2. Dim rooms.** A painted room takes 55% of decay's grey and darkness (`PAINTED_DECAY`), so it still reads as that room. A decayed room shows a note above it naming the quiet project and for how long, with Open it, Pause, Done and Drop; its label on the map says "dusty". The block view keeps phase 4's full decay.
+- **3. Walls cover Nato.** He is no longer drawn over everything. Each frame he is placed among the room layers: after the room he is in, or just before the first room whose back walls he is behind. The paintings' front sides are open (they are cutaways), and the Mail room's painted door is where its mat arrives, so no doorway had to be painted.
+- **4. Mail room corner.** The soft dissolve is replaced by a clean notch cut down the two walls towards the corner, with an outlined edge, like a section drawing (`NOTCH`).
+- **5. Nato walks to what is clicked.** Clicking a thing in a room sends him to the nearest floor spot in front of it (`walkTo`), and the thing opens 450 ms later (at once with reduced motion). He waits there a while before strolling again.
+- **6. First-run tour.** Four short tips in a corner card the first time the palace is opened (`PalaceGuide.tsx`), kept in localStorage, reopened with the "?" button in the header. It blocks nothing; Esc or Skip closes it. The E2E and screenshot scripts skip it; V7 checks it returns after the store is cleared.
+
+Verified: typecheck, 338 unit tests, full E2E 38 of 38 with L3 skipped, the editor check 4/4, screenshots of a dusty room and of the tour. Not verified: Nato being covered by a wall and walking to a clicked thing, as motion (stills only).

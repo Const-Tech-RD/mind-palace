@@ -112,6 +112,8 @@ async function launch(userData) {
   const page = await app.firstWindow()
   await page.setViewportSize({ width: 1400, height: 900 }).catch(() => {})
   await page.locator('.palace-canvas canvas').waitFor({ timeout: 30_000 })
+  // The first-run tour sits over a corner of the palace; it is not what these pictures are about.
+  await page.getByTestId('palace-guide').getByRole('button', { name: 'Skip' }).click({ timeout: 3_000 }).catch(() => {})
   return { app, page }
 }
 

@@ -54,6 +54,9 @@ async function launch(userData, extraEnv = {}) {
   await page.getByRole('button', { name: 'New chat' }).or(page.getByRole('heading', { level: 1 })).first().waitFor({ timeout: 30_000 })
   // The app opens on the palace with the rail collapsed. These cases were written
   // against the chat list and the new-chat screen, so open both when signed in.
+  // The first-run tour sits over a corner of the palace; these cases are not about it.
+  const skipTour = page.getByTestId('palace-guide').getByRole('button', { name: 'Skip' })
+  await skipTour.click({ timeout: 3_000 }).catch(() => {})
   const showChats = page.getByRole('button', { name: 'Show chats' })
   if (await showChats.count()) {
     await showChats.click()
@@ -1169,6 +1172,13 @@ async function sessionPalace() {
       await page.evaluate(() => window.localStorage.clear())
       await page.reload()
       await page.getByTestId('palace-stage').waitFor({ timeout: 15_000 })
+      // A cleared store means a first visit again: the tour is back.
+      const tour = page.getByTestId('palace-guide')
+      await tour.waitFor({ timeout: 5_000 })
+      const tourTitle = (await tour.getByRole('heading').innerText()).trim()
+      expect(tourTitle === 'This is your palace', `the tour opened on: ${tourTitle}`)
+      await tour.getByRole('button', { name: 'Skip' }).click()
+      await until(async () => (await tour.count()) === 0, { timeout: 5_000, what: 'the tour to close' })
       expect((await page.getByRole('navigation', { name: 'Chats' }).count()) === 0, 'the chat list was open at start')
       const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
       await page.keyboard.press(`${mod}+k`)
