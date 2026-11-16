@@ -691,14 +691,29 @@ async function sessionProjects() {
 
 async function sessionAuth() {
   const userData = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-auth-'))
-  // An API key that cannot be valid: the SDK uses it instead of the stored login.
-  const { app, page } = await launch(userData, { ANTHROPIC_API_KEY: 'sk-ant-api03-mind-palace-e2e-invalid-key' })
+  // A Claude Code config folder holding a login that cannot be valid. The app
+  // passes CLAUDE_CONFIG_DIR to the SDK (and nothing like ANTHROPIC_API_KEY), so
+  // this is the login Claude sees.
+  const configDir = mkdtempSync(join(tmpdir(), 'mind-palace-e2e-claude-'))
+  writeFileSync(
+    join(configDir, '.credentials.json'),
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-mind-palace-e2e-invalid',
+        refreshToken: 'sk-ant-ort01-mind-palace-e2e-invalid',
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        scopes: ['user:inference'],
+        subscriptionType: 'pro'
+      }
+    })
+  )
+  const { app, page } = await launch(userData, { CLAUDE_CONFIG_DIR: configDir })
   const failShot = () => shot(page, 'failure', 'State when the case failed')
 
   const refused = await testCase(
     {
       id: 'L1', area: 'Login', title: 'A login that Claude refuses is explained',
-      steps: ['Start the app with an invalid API key in the environment.', 'Send "hi".'],
+      steps: ['Start the app with CLAUDE_CONFIG_DIR pointing at a folder whose stored login is invalid.', 'Send "hi".'],
       expected: 'Instead of an answer, a screen says Claude did not accept the login, gives Claude\'s reason and the sign-in command.',
       failShot
     },
@@ -746,6 +761,7 @@ async function sessionAuth() {
 
   await app.close()
   rmSync(userData, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
 }
 
 // ---------------------------------------------------------------- S4: reminders
