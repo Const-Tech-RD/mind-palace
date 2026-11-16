@@ -47,14 +47,14 @@ export function Sidebar() {
   const label = (text: string) => <span className={open ? 'flex-1 truncate text-left' : 'sr-only'}>{text}</span>
   const item = (active: boolean) =>
     `relative mt-1 flex w-full items-center gap-2.5 rounded-md text-sm ${open ? 'px-3 py-1.5' : 'justify-center py-2'} ${
-      active ? 'bg-white/10 text-paper' : 'text-paper/80 hover:bg-white/5'
+      active ? 'bg-paper/10 text-paper' : 'text-paper/80 hover:bg-paper/5'
     }`
   /** A badge beside the label when expanded, on the icon's corner when collapsed. */
   const badge = (collapsed: string) => (open ? '' : `absolute top-0.5 right-0.5 scale-75 ${collapsed}`)
 
   return (
     <aside
-      className={`rail flex h-full shrink-0 flex-col border-r border-white/10 bg-ink-soft/60 ${open ? 'w-64' : 'w-14'}`}
+      className={`rail flex h-full shrink-0 flex-col border-r border-brass/25 bg-ink-soft/60 ${open ? 'w-64' : 'w-14'}`}
       data-open={open}
     >
       <div className={open ? 'p-3' : 'p-2'}>
@@ -62,7 +62,7 @@ export function Sidebar() {
           type="button"
           onClick={() => void selectChat(null)}
           title={open ? undefined : 'New chat'}
-          className={`flex w-full items-center justify-center gap-2 rounded-md bg-paper text-sm font-medium text-ink hover:bg-white ${
+          className={`flex w-full items-center justify-center gap-2 rounded-md bg-gold text-sm font-medium text-ink hover:bg-brass-light ${
             open ? 'px-3 py-2' : 'py-2'
           }`}
         >
@@ -79,7 +79,7 @@ export function Sidebar() {
           {ICONS.palace}
           {label('Palace')}
           {somethingNew && (
-            <span className={`rounded-full bg-amber-300 px-1.5 text-xs font-medium text-ink ${badge('')}`} aria-label="something new">
+            <span className={`rounded-full bg-gold px-1.5 text-xs font-medium text-ink ${badge('')}`} aria-label="something new">
               New
             </span>
           )}
@@ -112,7 +112,7 @@ export function Sidebar() {
         <button type="button" onClick={() => setCommandOpen(true)} title={open ? undefined : 'Search (⌘K)'} className={item(false)}>
           {ICONS.search}
           {label('Search')}
-          {open && <kbd className="rounded border border-white/15 px-1 text-[10px] text-muted">⌘K</kbd>}
+          {open && <kbd className="rounded border border-brass/35 px-1 text-[10px] text-muted">⌘K</kbd>}
         </button>
         <button
           type="button"
@@ -147,7 +147,7 @@ export function Sidebar() {
                         onClick={() => void selectChat(chat.id)}
                         aria-current={active ? 'true' : undefined}
                         className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-8 pl-2 text-left text-sm ${
-                          active ? 'bg-white/10 text-paper' : 'text-paper/80 hover:bg-white/5'
+                          active ? 'bg-paper/10 text-paper' : 'text-paper/80 hover:bg-paper/5'
                         }`}
                       >
                         <span className="truncate">{chat.title || 'New chat'}</span>
@@ -163,7 +163,7 @@ export function Sidebar() {
                           }
                         }}
                         aria-label={`Delete ${chat.title || 'chat'}`}
-                        className="absolute top-1/2 right-1 hidden size-6 -translate-y-1/2 rounded text-muted hover:bg-white/10 hover:text-paper group-hover:block focus:block"
+                        className="absolute top-1/2 right-1 hidden size-6 -translate-y-1/2 rounded text-muted hover:bg-paper/10 hover:text-paper group-hover:block focus:block"
                       >
                         ×
                       </button>
@@ -177,7 +177,7 @@ export function Sidebar() {
       )}
 
       {open && (
-        <footer className="border-t border-white/10 px-4 py-2 text-xs text-muted">
+        <footer className="border-t border-brass/25 px-4 py-2 text-xs text-muted">
           Mind Palace{version ? ` · v${version}` : ''}
         </footer>
       )}

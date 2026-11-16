@@ -4,6 +4,7 @@
  * Pure: rows in, view model out.
  */
 import type { Catalog, ShellTier } from './catalog'
+import { buildFloor, type FloorView } from './floor'
 import {
   buildRoomEvents,
   computeRoomState,
@@ -29,6 +30,8 @@ export interface PalaceRoom {
 export interface PalaceView {
   today: LocalDay
   rooms: PalaceRoom[]
+  /** The same rooms laid out on the one connected floor, for the canvas. */
+  floor: FloorView
 }
 
 export const itemKey = (item: PlacedItem): string => `${item.item}@${item.slot}#${item.index}`
@@ -67,7 +70,7 @@ export function buildPalace(input: {
     const fresh = newSince(input.seen[room.id] ?? null, state)
     return { id: room.id, name: room.name, accent: room.accent, state, newItems: fresh.items, newShell: fresh.shell }
   })
-  return { today: input.today, rooms }
+  return { today: input.today, rooms, floor: buildFloor(input.catalog, rooms, itemKey) }
 }
 
 const SPECIAL_LABELS: Record<string, string> = {

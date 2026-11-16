@@ -12,7 +12,7 @@ function ReminderCard({ item }: { item: ReminderItem }) {
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="min-w-0 flex-1 truncate font-medium">{item.projectTitle}</h3>
         {room && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-xs">
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-paper/10 px-2.5 py-0.5 text-xs">
             <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
             {room.name}
           </span>
@@ -30,7 +30,7 @@ function ReminderCard({ item }: { item: ReminderItem }) {
             type="button"
             onClick={() => void respond(item.id, response)}
             className={`rounded-md px-3 py-1 text-sm ${
-              response === 'open' ? 'bg-paper font-medium text-ink hover:bg-white' : 'bg-white/10 text-paper hover:bg-white/20'
+              response === 'open' ? 'bg-gold font-medium text-ink hover:bg-brass-light' : 'bg-paper/10 text-paper hover:bg-paper/20'
             }`}
           >
             {REMINDER_RESPONSE_LABEL[response]}
@@ -50,7 +50,7 @@ export function RemindersView() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 px-5">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-brass/25 px-5">
         <h1 className="text-sm font-medium">Reminders</h1>
         <label className="flex items-center gap-2 text-xs text-muted">
           <input

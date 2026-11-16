@@ -82,7 +82,7 @@ function Palette() {
       <div
         role="dialog"
         aria-label="Search"
-        className="command-bar w-[min(560px,90vw)] overflow-hidden rounded-xl border border-white/15 bg-ink shadow-2xl"
+        className="command-bar w-[min(560px,90vw)] overflow-hidden rounded-xl border border-brass/35 bg-walnut shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <input
@@ -98,7 +98,7 @@ function Palette() {
           role="combobox"
           aria-expanded="true"
           aria-controls="command-results"
-          className="w-full border-b border-white/10 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-muted"
+          className="w-full border-b border-brass/25 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-muted"
         />
         <ul ref={list} id="command-results" role="listbox" className="max-h-80 overflow-y-auto p-1.5">
           {results.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted">Nothing matches “{query}”.</li>}
@@ -110,7 +110,7 @@ function Palette() {
               onMouseEnter={() => setIndex(i)}
               onClick={() => run(command)}
               className={`flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm ${
-                i === index ? 'bg-white/10 text-paper' : 'text-paper/80'
+                i === index ? 'bg-paper/10 text-paper' : 'text-paper/80'
               }`}
             >
               <span className="w-14 shrink-0 text-[10px] tracking-wide text-muted uppercase">{KIND_LABEL[command.kind]}</span>
@@ -119,7 +119,7 @@ function Palette() {
             </li>
           ))}
         </ul>
-        <p className="border-t border-white/10 px-4 py-1.5 text-[11px] text-muted">↑↓ to move · Enter to open · Esc to close</p>
+        <p className="border-t border-brass/25 px-4 py-1.5 text-[11px] text-muted">↑↓ to move · Enter to open · Esc to close</p>
       </div>
     </div>
   )

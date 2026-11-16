@@ -5,6 +5,7 @@
  * login: no API key. Everything else in the app sees the small event stream
  * below, so moving to another way of calling the model is a change to this file.
  */
+import { sdkEnv } from '@shared/sdkEnv'
 import type { Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
 export type ClaudeEvent =
@@ -93,7 +94,7 @@ function buildOptions(params: AskParams): Options {
     // hooks, skills or MCP servers are loaded into this app's chats.
     settingSources: [],
     mcpServers: {},
-    env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `mind-palace/${params.appVersion}` },
+    env: sdkEnv(process.env, params.appVersion),
     ...(params.resume ? { resume: params.resume } : {})
   }
 }
@@ -205,7 +206,7 @@ export async function askJson(params: {
     settingSources: [],
     mcpServers: {},
     persistSession: false,
-    env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: `mind-palace/${params.appVersion}` }
+    env: sdkEnv(process.env, params.appVersion)
   }
   const stream = query({ prompt: params.prompt, options })
   let apiKeySource: string | null = null

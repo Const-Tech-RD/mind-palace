@@ -53,7 +53,7 @@ export function App() {
           {!(view === 'chat' && chatWide) && <PalaceView />}
           {view === 'chat' && (
             <div
-              className={`chat-panel flex h-full min-w-0 border-l border-white/10 bg-ink ${
+              className={`chat-panel flex h-full min-w-0 border-l border-brass/25 bg-walnut ${
                 chatWide ? 'flex-1' : 'w-[min(520px,58%)] shrink-0 shadow-[-12px_0_32px_rgba(0,0,0,0.35)]'
               }`}
               data-testid="chat-panel"

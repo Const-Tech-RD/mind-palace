@@ -341,3 +341,72 @@ Not verified: that a chat sent after "Chat here" really lands in that room (need
 Verified: typecheck; 231 unit tests (7 new for the search); full E2E run 35 pass, 1 fail (R1, a test selector), 1 skipped (L3, as before); R1 fixed and S1 rerun 12/12. New cases V6 (panel beside the room) and V7 (starts on the palace; Cmd+K). The E2E `launch()` helper now expands the rail and opens New chat so the older cases start where they used to.
 
 Not verified: S2 was not rerun after one selector in it was scoped to the chat panel (line ~682). `report.pdf` is not regenerated and `results.json` now holds only the last partial run. Narrow windows (under ~900px). Screen-reader behaviour of the command bar.
+
+## Stage 2 of "make it alive": living helpers (2026-11-15)
+
+- `src/shared/agents.ts` (pure, tested): each room has a helper whose state follows the answer being written for a chat filed there: idle, thinking, searching, writing, done. A chat with no room yet is handled by the Mail room's helper. Also the activity log and what counts as a change to a chat.
+- `Agent.tsx`: the helper is always in its room, on the map and inside the room. Its state shows in its movement, a badge, and a bubble: a short label on the map, the live tail of the answer inside the room. Inside the room a "Watch the answer" / "Read the answer" button opens that chat.
+- Filing: when a chat gets a room, a scroll travels on the map from the Mail room through the atrium to that room (`Scroll` in `PalaceHub.tsx`).
+- `ActivityStrip.tsx`: a strip under the palace with what just happened (asked, searching, answered, stopped, filed or moved, project suggested or tracked, failed). Click a line to open its chat. It lives in memory only and starts empty each launch.
+- All four helpers use the same picture; only the glow colour differs per room. Per-room characters and poses need new art.
+
+Verified: typecheck; 247 unit tests (16 new); E2E S1 12/12 against the real model, including new checks that the Mail room helper is `writing` while an unsorted chat is answered and that the strip reports the answer and the filing; S5 7/7.
+
+Not verified: how the busy states and the bubble look (the test checks the state, and its screenshot was overwritten by the next run). The filing scroll has no test and was not seen: when a chat is filed while it is open, the palace beside it switches to the room view, where the map is not drawn, so the scroll only shows when the map is on screen. S2–S4 not rerun. `report.pdf` not regenerated.
+
+## Plan v2, first pass (2026-11-15)
+
+Claudio's plan v2 is in `docs/` (PR #1, merged). This pass follows `docs/HANDOFF.md`. What was done, and what was not:
+
+Done:
+
+- **Environment fix.** `src/shared/sdkEnv.ts` builds the SDK child's environment. It drops `ANTHROPIC_*`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*` and `CLAUDECODE`, and keeps four a person sets on purpose to choose a login: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`. The plan says "clear", HANDOFF says "allow-list"; this is neither exactly. Clearing the API key would break people who sign in with one and the L1 test. Claudio to confirm.
+- **Theme.** `styles.css` uses the style guide's tokens (walnut, parchment, brass, gold). The three fonts are bundled through `@fontsource-variable/*`. The old utility names (`ink-soft`, `paper`, `muted`) are kept and point at the guide's values; `bg-walnut`, `bg-raised`, `gold`, `brass` are new. Primary buttons are gold. The CSP now allows `font-src 'self' data:` because the font packages inline small subsets.
+- **Connected palace model.** `src/shared/floor.ts`, pure and tested: 18 x 18 tiles, four rooms at fixed origins, two hallways, back walls full height on the outside and low with a doorway onto a hallway, low front walls only where a hallway is, every placed item as a block at its slot. `buildPalace` now returns it as `floor`.
+- **PixiJS canvas.** `PalaceCanvas.tsx` draws the floor with placeholder blocks, the room glow, Nato and one helper per room, with fit, zoom into a room, wheel zoom, drag to pan, hover outline and Esc to go back. It needs `import 'pixi.js/unsafe-eval'` because the CSP forbids eval, and loads textures through `<img>` to avoid workers.
+- **One palace screen.** `PalaceView.tsx` keeps a single canvas and shows the room's details beside it when a room is chosen. The painting is the header picture of that side panel. `PalaceHub.tsx` and `Agent.tsx` are gone; `roomArt.ts` only maps paintings now.
+- Nato walks through the doorways and the lobby when the room in view changes. Helper states from stage 2 drive the helper's movement, a dot over it, and the label's bubble.
+
+Not done from HANDOFF and the plan:
+
+- `catalog/items.json`. Heights of base items are a table inside `floor.ts` (`BASE_HEIGHT`); footprints come from the slot.
+- Placements, the inventory and the room editor (the selling point). No `placements` table yet.
+- Decay.
+- Background sessions, approvals, the new tables, the event contract.
+- Dropping `goal_completions.counted` and storing each message's local day: both need a migration and were left for a pass of their own. The plan's data model still lists `counted`, which contradicts the fix list.
+- The ~38k tokens per turn was not measured.
+- The guide's component set as components; the theme is applied through tokens and existing classes. No automated contrast check.
+- The plain list view for screen readers is only an aria-label on the canvas plus the room buttons.
+- The filing scroll from stage 2 was removed with the old map and not rebuilt on the canvas.
+
+Verified: typecheck; 261 unit tests (floor 11, sdkEnv 3 new); full E2E 36 passed, 0 failed, 1 skipped (L3, as before), against the real model for S1 to S4. Looked at the hub, a zoomed room and a streaming answer in the E2E screenshots.
+
+Not verified: wheel zoom and drag (no test, not tried by hand); Windows; how the canvas behaves on a display without WebGL; the look at narrow widths, where the room labels overlap the shortcut buttons. `report.pdf` is not regenerated.
+
+## Painted rooms on the connected floor (2026-11-15)
+
+Asked for by Nato after seeing the placeholder blocks: "put the rooms with the real design we already have", the character with movement, and a general polish. This departs from plan v2, which keeps the paintings as a style reference only.
+
+- `scripts/cut_rooms.py` (the original paintings are kept outside the repo) cuts each room out of its painting along its six corners, measured by hand, and maps the three floor corners onto the 8 x 8 room diamond. Output: `src/renderer/src/assets/rooms/cut/<room>.webp` at 2x, and the anchor numbers copied into `roomArt.ts` (`ROOM_CUT`).
+- `PalaceCanvas.tsx` draws a room as its cut-out when it has one, and as placeholder blocks when it does not, so the sprite path of plan v2 still works for a room without a painting.
+- The shell tier is a colour filter on the painting: bare is dim and nearly grey, painted has some colour, finished has all of it. Individual unlocked items are not visible in a painted room; they are still listed under "In this room".
+- **Hallways are 5 tiles, not the plan's 2** (`HALL_TILES` in `floor.ts`). The painted back walls are about 4.8 units tall; with 2-tile hallways a front room's walls cover the floor of the room behind. Five is the narrowest that avoids it, and a test pins that. The palace is 21 x 21 tiles.
+- Zoomed into a room, the other rooms fade to 16% so their walls do not crowd the view.
+- Nato: turns to face the way he walks, hops and leans while walking, breathes while standing, has a shadow, and takes a few slow steps around his spot every few seconds. It is one still picture moved by code; there are no walk frames yet.
+- Per room, where Nato and the helper stand on the painted floor was picked by eye (`ROOM_CUT[...].nato` / `.helper`).
+- The Art workshop still uses the tinkerer's workshop painting.
+
+Verified: typecheck, 262 unit tests, E2E S5 7/7, and screenshots of the map and each room. Not verified: S1 to S4 after this change; the strolling and walking as motion (only still frames were looked at).
+
+## New art from Gemini (2026-11-15)
+
+Generated in one Gemini chat (image tool) with the existing paintings and characters attached as references, then cut by `scripts/cut_rooms.py` and `scripts/cut_sprites.py`. The full-size sources are kept outside the repo.
+
+- **Art workshop**: a real artist's studio painting replaces the tinkerer's workshop, as the header picture (`assets/rooms/art.jpg`) and as the cut-out on the floor.
+- **Nato**: four walk frames and a seated pose (`assets/characters/nato_walk_1..4.png`, `nato_sit.png`). The canvas plays the frames while he walks or strolls, uses frame 4 (feet together) when he stands, and seats him while the helper of his room is busy with an answer. The earlier single picture `nato.png` is no longer used by the canvas.
+- **Helpers**: one per room (`helper_coding`, `helper_music`, `helper_art`, `helper_mailroom`), each with its chest light in the room's colour and one accessory.
+- **Lobby centrepiece** (`assets/items/lobby.png`): a plinth with a glowing map and a signpost. It stands towards the back of the lobby; the Mail room's walls and label still hide part of it.
+- `scripts/cut_sprites.py` removes the key colour, keeps each figure's largest connected shape (the generator leaves faint stray pieces on the key colour), and writes every figure of a set on the same canvas with the feet on the bottom edge.
+- Room labels now sit on the top of the back wall instead of above it.
+
+Verified: typecheck, 262 unit tests, E2E S5 7/7, screenshots of the map and each room. Not verified: the walk frames in motion and the seated pose during a real answer (only still frames were looked at); S1 to S4 after these changes.
