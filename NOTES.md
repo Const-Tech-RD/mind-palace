@@ -493,3 +493,21 @@ The first live run named the area "Software projects and tech" and filed the ONI
 Open:
 - Finance and 3D printing have 2 chats each, below the threshold of 3.
 - `MIND_PALACE_FAKE_MODEL` answers small-model calls from a JSON file in unpackaged builds only, for the screenshot runs.
+
+## Furniture sprites (2026-11-16)
+
+Spec: `docs/superpowers/specs/2026-11-16-furniture-sprites-design.md`. Plan: `docs/superpowers/plans/2026-11-16-furniture-sprites.md`.
+
+- **38 of 44 items are drawn.** They come from 10 Gemini sheets made in one chat, driven from the in-app browser. The sheets themselves are in `../mind-palace-art/sheets`, outside the repo.
+- **`scripts/fit_sprites.py`** (needs scipy) fits the sheets to the spec canvases:
+  - It keys out magenta and splits each sheet into pieces, mapped left to right through `scripts/sprite-sheets.json`. A sheet whose piece count is wrong is refused.
+  - It scales each piece to its footprint canvas, at 2×, with the anchor at the front corner.
+  - Pieces listed under `mirror` were drawn with their long side the wrong way round, so they are flipped.
+  - It writes `src/renderer/src/assets/items/manifest.json`.
+- **The canvas** draws a sprite wherever the manifest has one, placed by `spritePlacement` in `src/shared/sprites.ts`. Wall items are mirrored on the left wall, and a floor item that its slot turns round is mirrored too. Anything without a sprite stays a block. A piece that is new since the last visit gets a gold outline on its footprint.
+- **Still blocks:** finance_safe, finance_filing_cabinet, print3d_printer, print3d_spool_bin, print3d_part_shelf, mail_parcel_stack. Sheets s11 and s12 are listed in the map but were never generated.
+- **Screenshot fixture fix:** the Coding room now puts the monitor on the desk's right spot. Stored rooms have no "replaces", so a second item on the same spot waited in the inventory.
+
+Verified: `npm test` passes 410/410 and typecheck is clean. Screenshots looked at: furnished, a focused Coding room, Finance with a mix of sprites and blocks, and the editor run, which passes 4/4.
+
+Not done: no variants and no accent-tint layers; the shell (walls and floor) is still drawn by code. Gemini's angle is close to, not exactly, the spec's isometric.

@@ -33,5 +33,16 @@ export const NATO_FRAMES = {
 /** Each room's own helper. */
 export const HELPER_SPRITE: Record<string, string> = { coding: helperCoding, music: helperMusic, art: helperArt, mailroom: helperMailroom }
 export const HELPER_FIGURE_HEIGHT = 320
+import itemManifest from '../assets/items/manifest.json'
+import type { SpriteEntry } from '@shared/sprites'
+
+const ITEM_URLS = import.meta.glob('../assets/items/*.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>
+
+/** Furniture sprites (scripts/fit_sprites.py), each with its file's URL; items missing here are drawn as blocks. */
+export const ITEM_SPRITES: Array<SpriteEntry & { url: string }> = (itemManifest as SpriteEntry[]).flatMap((entry) => {
+  const url = ITEM_URLS[`../assets/items/${entry.file}`]
+  return url ? [{ ...entry, url }] : []
+})
+
 /** The centrepiece of the lobby, where the hallways cross. */
 export const LOBBY_SPRITE = { url: lobby, width: 332, height: 366 }
