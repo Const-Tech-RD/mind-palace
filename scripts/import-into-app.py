@@ -88,7 +88,7 @@ def local_day(iso, tz_name):
 
 def plan(sessions, labels, states, now):
     by_id = {label['id']: label for label in labels}
-    chats, messages, groups = [], [], collections.defaultdict(list)
+    chats, messages, files, groups = [], [], [], collections.defaultdict(list)
     for session in sessions:
         label = by_id.get(session['id'])
         # Scheduled runs, tests and greetings: not conversations worth a chat.
@@ -105,9 +105,14 @@ def plan(sessions, labels, states, now):
             'classified_at': now,
             'created_at': session['startedAt'],
             'last_message_at': session['lastAt'],
+            # Where a Claude Code session ran; claude.ai chats have none.
+            'cwd': session.get('cwd') if session.get('source') == 'claude-code' else None,
         })
         for index, message in enumerate(session['messages']):
-            messages.append((f'{chat_id}-{index:04d}', chat_id, 'user', message['text'], message['at']))
+            # Lines from before answers were extracted carry no role: they are the person's.
+            messages.append((f'{chat_id}-{index:04d}', chat_id, message.get('role', 'user'), message['text'], message['at']))
+        for path, edits in (session.get('files') or {}).items():
+            files.append((chat_id, path, edits))
         if label and label.get('is_project') and label.get('project'):
             groups[label['project'].strip()].append((session, room))
 
@@ -130,7 +135,7 @@ def plan(sessions, labels, states, now):
             links.append((project_id, 'cc-' + session['id']))
         if state == 'done':
             completions.append((project_id, room, last))
-    return chats, messages, projects, links, completions
+    return chats, messages, files, projects, links, completions
 
 
 def main():
@@ -148,10 +153,12 @@ def main():
     states_path = os.path.join(HERE, 'import', 'project-states.json')
     states = json.load(open(states_path)) if os.path.exists(states_path) else {}
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-    chats, messages, projects, links, completions = plan(sessions, labels, states, now)
+    chats, messages, files, projects, links, completions = plan(sessions, labels, states, now)
 
     rooms = collections.Counter(chat['room_id'] or '(unsorted)' for chat in chats)
-    print(f'{len(chats)} chats, {len(messages)} messages, {len(projects)} projects, {len(links)} chat links')
+    answers = sum(1 for m in messages if m[2] == 'assistant')
+    print(f'{len(chats)} chats, {len(messages) - answers} typed messages and {answers} answers, '
+          f'{len(files)} files edited, {len(projects)} projects, {len(links)} chat links')
     print('chats per room:', dict(rooms))
     print('projects by state:', dict(collections.Counter(p['state'] for p in projects)))
     if not labels:
@@ -194,12 +201,26 @@ def main():
             "SELECT id, project_id, room_id, local_day FROM goal_completions WHERE project_id LIKE 'ccp-%' AND id NOT LIKE 'ccg-%'").fetchall()
         kept_links = db.execute(
             "SELECT project_id, chat_id FROM project_chats WHERE project_id LIKE 'ccp-%' OR chat_id LIKE 'cc-%'").fetchall()
+        # Project progress made in the app: milestones, proposals, sweep answers and folders.
+        # (Chat digests are not kept: the app rebuilds them from the fresh messages.)
+        kept_folders = db.execute(
+            "SELECT id, folder, git_root, folder_source, swept_at FROM projects WHERE id LIKE 'ccp-%'").fetchall()
+        milestone_cols = ('id, project_id, title, original_title, position, status, done_on, evidence, evidence_ref, '
+                          'edited, status_by_user, deleted_at, created_at')
+        kept_milestones = db.execute(
+            f"SELECT {milestone_cols} FROM milestones WHERE project_id LIKE 'ccp-%'").fetchall()
+        proposal_cols = 'id, project_id, kind, milestone_id, title, after_id, evidence, evidence_ref, done_on, answered, created_at'
+        kept_proposals = db.execute(
+            f"SELECT {proposal_cols} FROM milestone_proposals WHERE project_id LIKE 'ccp-%'").fetchall()
+        kept_dismissals = db.execute(
+            "SELECT project_id, chat_id FROM sweep_dismissals WHERE project_id LIKE 'ccp-%' OR chat_id LIKE 'cc-%'").fetchall()
         # Replace an earlier import. Order matters: projects reference chats.
         db.execute("DELETE FROM projects WHERE id LIKE 'ccp-%'")
         db.execute("DELETE FROM chats WHERE id LIKE 'cc-%'")
         db.executemany(
-            'INSERT INTO chats (id, title, room_id, room_source, classified_at, created_at, last_message_at) '
-            'VALUES (:id, :title, :room_id, :room_source, :classified_at, :created_at, :last_message_at)', chats)
+            'INSERT INTO chats (id, title, room_id, room_source, classified_at, created_at, last_message_at, cwd) '
+            'VALUES (:id, :title, :room_id, :room_source, :classified_at, :created_at, :last_message_at, :cwd)', chats)
+        db.executemany('INSERT INTO chat_files (chat_id, path, edits) VALUES (?, ?, ?)', files)
         db.executemany('INSERT INTO messages (id, chat_id, role, content, created_at, local_day) VALUES (?, ?, ?, ?, ?, ?)',
                        [(*row, local_day(row[4], tz_name)) for row in messages])
         db.executemany(
@@ -225,8 +246,25 @@ def main():
             'INSERT OR IGNORE INTO project_chats (project_id, chat_id) '
             'SELECT ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?) AND EXISTS (SELECT 1 FROM chats WHERE id = ?)',
             [(p, c, p, c) for p, c in kept_links])
+        db.executemany(
+            'UPDATE projects SET folder = ?, git_root = ?, folder_source = ?, swept_at = ? WHERE id = ?',
+            [(*row[1:], row[0]) for row in kept_folders])
+        db.executemany(
+            f'INSERT OR IGNORE INTO milestones ({milestone_cols}) '
+            'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?)',
+            [(*row, row[1]) for row in kept_milestones])
+        db.executemany(
+            f'INSERT OR IGNORE INTO milestone_proposals ({proposal_cols}) '
+            'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?) '
+            'AND (? IS NULL OR EXISTS (SELECT 1 FROM milestones WHERE id = ?))',
+            [(*row, row[1], row[3], row[3]) for row in kept_proposals])
+        db.executemany(
+            'INSERT OR IGNORE INTO sweep_dismissals (project_id, chat_id) '
+            'SELECT ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?) AND EXISTS (SELECT 1 FROM chats WHERE id = ?)',
+            [(p, c, p, c) for p, c in kept_dismissals])
         db.commit()
-        print(f'imported. kept from before: {len(kept_chats)} chats, {len(kept_projects)} projects, {len(kept_goals)} goals made in the app')
+        print(f'imported. kept from before: {len(kept_chats)} chats, {len(kept_projects)} projects, {len(kept_goals)} goals made in the app, '
+              f'{len(kept_milestones)} milestones, {len(kept_proposals)} proposals, {len(kept_dismissals)} sweep answers')
     finally:
         db.close()
 
