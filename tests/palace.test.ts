@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  areaChange,
+  areaKey,
   buildClassifierPrompt,
+  classificationSchema,
   dueForQuietCheck,
   interpretClassification,
   roomChange,
@@ -34,6 +37,8 @@ const raw = (over: Partial<RawClassification> = {}): RawClassification => ({
   project_title: null,
   next_step: null,
   existing_project_id: null,
+  area: 'software',
+  area_name: 'Software',
   ...over
 })
 
@@ -46,7 +51,18 @@ describe('buildClassifierPrompt', () => {
       { role: 'assistant', content: 'Strict mode.' },
       { role: 'system', content: 'hidden' }
     ],
-    openProjects: [{ id: 'p1', title: 'Pantry app', roomId: 'coding' }]
+    openProjects: [{ id: 'p1', title: 'Pantry app', roomId: 'coding' }],
+    knownAreas: [
+      { key: 'software', name: 'Software' },
+      { key: '3d_printing', name: '3D printing' }
+    ]
+  })
+
+  it('lists the known areas and asks for one to be reused when it fits', () => {
+    expect(prompt).toContain('- software — Software')
+    expect(prompt).toContain('- 3d_printing — 3D printing')
+    expect(prompt).toMatch(/reuse/i)
+    expect(prompt).toContain('area of life')
   })
 
   it('carries every room with its catalog text, so editing the catalog changes the classifier', () => {
@@ -109,6 +125,36 @@ describe('interpretClassification', () => {
     expect(
       interpretClassification(raw({ room_id: 'music', is_project: true, project_title: 'Pantry', existing_project_id: 'p1' }), ctx).project
     ).toMatchObject({ kind: 'new' })
+  })
+})
+
+describe('areas', () => {
+  const ctx = { roomIds, fallbackRoomId, openProjects: [] as OpenProject[] }
+
+  it('reduces spelling variants to one key', () => {
+    expect(areaKey('3D printing')).toBe('3d_printing')
+    expect(areaKey('3d-printing')).toBe('3d_printing')
+    expect(areaKey(' 3D Printing ')).toBe('3d_printing')
+    expect(areaKey('Finance & money!')).toBe('finance_money')
+    expect(areaKey('  ')).toBe('')
+  })
+
+  it("reads the model's area into a key and a name", () => {
+    expect(interpretClassification(raw({ area: '3D-printing', area_name: ' 3D printing ' }), ctx).area).toEqual({ key: '3d_printing', name: '3D printing' })
+    expect(interpretClassification(raw({ area: '--', area_name: 'x' }), ctx).area).toBeNull()
+    // No display name: the key stands in.
+    expect(interpretClassification(raw({ area: 'finance', area_name: ' ' }), ctx).area).toEqual({ key: 'finance', name: 'finance' })
+  })
+
+  it('keeps an area once a chat has one', () => {
+    const result = interpretClassification(raw({ area: 'finance', area_name: 'Finance' }), ctx)
+    expect(areaChange({ area: null }, result)).toEqual({ key: 'finance', name: 'Finance' })
+    expect(areaChange({ area: 'software' }, result)).toBeNull()
+  })
+
+  it('rejects an answer without an area', () => {
+    const { area: _a, ...rest } = raw()
+    expect(classificationSchema.safeParse(rest).success).toBe(false)
   })
 })
 
@@ -238,6 +284,14 @@ function memoryPalace() {
     markClassified(id, at) {
       chats.get(id)!.classifiedAt = at
     },
+    setArea(id, key, name) {
+      Object.assign(chats.get(id)!, { area: key, areaName: name })
+    },
+    knownAreas: () => {
+      const seen = new Map<string, string>()
+      for (const c of chats.values()) if (c.area && !seen.has(c.area)) seen.set(c.area, c.areaName ?? c.area)
+      return [...seen].map(([key, name]) => ({ key, name }))
+    },
     setSuggestion(id, projectId) {
       chats.get(id)!.suggestedProjectId = projectId
     },
@@ -304,6 +358,8 @@ function memoryPalace() {
       lastMessageAt: '2026-11-15T11:00:00.000Z',
       suggestedProjectId: null,
       projectDismissedAt: null,
+      area: null,
+      areaName: null,
       ...over
     })
   }
@@ -339,6 +395,27 @@ function classifierHarness(answers: Array<Partial<RawClassification> | { fail: s
 }
 
 describe('classifier', () => {
+  it("tags the chat's area the first time, and keeps it after that", async () => {
+    const h = classifierHarness([
+      { room_id: 'mailroom', area: '3D printing', area_name: '3D printing' },
+      { room_id: 'mailroom', area: 'bambu', area_name: 'Bambu printer' }
+    ])
+    h.chat('c1')
+    await h.classifier.classify('c1')
+    expect(h.chats.get('c1')).toMatchObject({ area: '3d_printing', areaName: '3D printing' })
+    h.setNow('2026-11-15T13:00:00.000Z')
+    await h.classifier.classify('c1')
+    expect(h.chats.get('c1')).toMatchObject({ area: '3d_printing', areaName: '3D printing' })
+  })
+
+  it('shows the model the areas it has already named', async () => {
+    const h = classifierHarness([{ room_id: 'mailroom' }])
+    h.chat('c0', { area: 'finance', areaName: 'Finance' })
+    h.chat('c1')
+    await h.classifier.classify('c1')
+    expect(h.prompts[0]).toContain('- finance — Finance')
+  })
+
   it('places the chat, stamps it, and tells the renderer', async () => {
     const h = classifierHarness([{ room_id: 'music' }])
     h.chat('c1')

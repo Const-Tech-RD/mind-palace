@@ -1,4 +1,5 @@
 import {
+  areaChange,
   buildClassifierPrompt,
   CLASSIFICATION_JSON_SCHEMA,
   CLASSIFIER_SYSTEM_PROMPT,
@@ -9,6 +10,7 @@ import {
   type Classification,
   type ClassifierMessage,
   type ClassifierRoom,
+  type KnownArea,
   type OpenProject
 } from '@shared/classify'
 import type { JsonAnswer } from '../chat/claude'
@@ -41,6 +43,7 @@ export async function classifyTranscript(input: {
   fallbackRoomId: string
   messages: ClassifierMessage[]
   openProjects: OpenProject[]
+  knownAreas?: KnownArea[]
   askModel: ClassifierDeps['askModel']
 }): Promise<{ ok: true; result: Classification; tokensIn: number; tokensOut: number } | { ok: false; error: string }> {
   const prompt = buildClassifierPrompt(input)
@@ -84,6 +87,7 @@ export function createClassifier(deps: ClassifierDeps) {
         fallbackRoomId: deps.fallbackRoomId,
         messages,
         openProjects,
+        knownAreas: repo.knownAreas(),
         askModel: deps.askModel
       })
       if (!outcome.ok) {
@@ -103,6 +107,8 @@ export function createClassifier(deps: ClassifierDeps) {
       if (newRoom !== null) deps.beforeMove?.()
       repo.transaction(() => {
         if (newRoom !== null) repo.setRoom(chatId, newRoom, 'model')
+        const area = areaChange(chat, result)
+        if (area !== null) repo.setArea(chatId, area.key, area.name)
         repo.markClassified(chatId, at)
 
         const room = newRoom ?? chat.roomId ?? result.roomId
