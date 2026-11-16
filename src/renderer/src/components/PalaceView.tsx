@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AGENT_LABEL, roomAgents, type RoomAgent } from '@shared/agents'
-import { activeToday, currentRoomOf, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
+import { activeToday, currentRoomOf, decayText, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
 import { useStore } from '../store'
 import { ActivityStrip } from './ActivityStrip'
 import { PalaceCanvas, type CanvasLabel } from './PalaceCanvas'
+import { PalaceList, RoomSummary } from './PalaceList'
 import { ROOM_IMAGE } from './roomArt'
 
 const MAX_TROPHIES = 5
@@ -158,6 +159,26 @@ export function PalaceView() {
   const showReminders = useStore((s) => s.showReminders)
   const [labels, setLabels] = useState<CanvasLabel[]>([])
   const refreshPalace = useStore((s) => s.refreshPalace)
+  const [hovered, setHovered] = useState<string | null>(null)
+  // Map or plain list, remembered per viewer; reduced motion starts on the list until someone chooses.
+  const [mode, setMode] = useState<'scene' | 'list'>(() => {
+    try {
+      const saved = localStorage.getItem('palace.mode')
+      if (saved === 'scene' || saved === 'list') return saved
+    } catch {
+      // Storage can be unavailable; fall through to the default.
+    }
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'list' : 'scene'
+  })
+  const chooseMode = (next: 'scene' | 'list'): void => {
+    setMode(next)
+    try {
+      localStorage.setItem('palace.mode', next)
+    } catch {
+      // Not remembered; it still switches.
+    }
+  }
+  const projectTitle = (id: string | null): string | null => (id ? (projects.find((p) => p.id === id)?.title ?? null) : null)
   // The focused room's back walls rise and show what hangs on them: ask for the floor with that focus.
   useEffect(() => {
     void refreshPalace()
@@ -259,10 +280,31 @@ export function PalaceView() {
                 data-testid="palace-stage"
                 data-room={room?.id ?? ''}
               >
-                <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick} onLabels={setLabels} />
+                {mode === 'list' && !room ? (
+                  <div className="absolute inset-0 overflow-y-auto pt-12">
+                    <PalaceList rooms={palace.rooms} projectTitle={projectTitle} onOpen={(id) => void showPalace(id)} />
+                  </div>
+                ) : (
+                  <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick} onLabels={setLabels} onHover={setHovered} />
+                )}
 
                 {/* Room names float over the floor; they are also the keyboard way into a room. */}
+                {!room && mode === 'scene' && hovered && (() => {
+                  const r = palace.rooms.find((x) => x.id === hovered)
+                  const label = labels.find((l) => l.id === hovered)
+                  if (!r || !label) return null
+                  return (
+                    <div
+                      role="tooltip"
+                      className="pointer-events-none absolute z-10 w-64 -translate-x-1/2 rounded-lg border border-brass/50 bg-walnut/95 px-3 py-2 shadow-lg"
+                      style={{ left: label.left, top: label.top + 8 }}
+                    >
+                      <RoomSummary room={r} decay={decayText(r.decay, projectTitle(r.decay.projectId))} roomIds={roomIds} />
+                    </div>
+                  )
+                })()}
                 {!room &&
+                  mode === 'scene' &&
                   labels.map((label) => {
                     const r = palace.rooms.find((x) => x.id === label.id)
                     if (!r) return null
@@ -315,6 +357,14 @@ export function PalaceView() {
                       className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-ink shadow hover:bg-brass-light"
                     >
                       New chat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => chooseMode(mode === 'scene' ? 'list' : 'scene')}
+                      aria-pressed={mode === 'list'}
+                      className="rounded-full border border-brass/50 bg-walnut/90 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
+                    >
+                      {mode === 'scene' ? 'List view' : 'Map view'}
                     </button>
                     <button
                       type="button"

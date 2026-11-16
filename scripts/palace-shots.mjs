@@ -97,7 +97,8 @@ const fixtures = {
       quietProject(db, 'art', 22)
       quietProject(db, 'mailroom', 32)
     },
-    focus: ['art']
+    focus: ['art'],
+    extras: true
   }
 }
 
@@ -147,6 +148,21 @@ async function capture(name, fixture) {
       files.push(file)
     }
     await shot('')
+    if (fixture.extras) {
+      // The tooltip: point at the floor just below the Coding room's label.
+      const label = await page.locator('[data-agent="coding"]').first().boundingBox()
+      if (label) {
+        await page.mouse.move(label.x + label.width / 2, label.y + label.height + 140)
+        await settle(page, 600)
+        await shot('-hover')
+        await page.mouse.move(5, 5)
+      }
+      await page.getByRole('button', { name: 'List view' }).click()
+      await settle(page, 400)
+      await shot('-list')
+      await page.getByRole('button', { name: 'Map view' }).click()
+      await settle(page)
+    }
     for (const roomId of fixture.focus ?? []) {
       await page.locator(`[data-agent="${roomId}"]`).first().click()
       await settle(page)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
-import { activeToday, buildPalace, currentRoomOf, itemKey, itemLabel, newSince, rewardText, seenKeys, trackProgress } from '../src/shared/palace'
+import { activeToday, buildPalace, currentRoomOf, decayText, itemKey, itemLabel, newSince, rewardText, seenKeys, trackProgress } from '../src/shared/palace'
 import { addDays } from './shared'
 import { catalog } from './helpers'
 
@@ -186,5 +186,18 @@ describe('the palace hub helpers', () => {
     expect(currentRoomOf(chats, roomIds)).toBe('art')
     expect(currentRoomOf([{ roomId: null, lastMessageAt: null, createdAt: '2026-11-11T00:00:00.000Z' }], roomIds)).toBeNull()
     expect(currentRoomOf([], roomIds)).toBeNull()
+  })
+})
+
+describe('decayText', () => {
+  const decay = (level: 0 | 1 | 2 | 3 | 4, weekdaysQuiet: number) => ({ level, weekdaysQuiet, projectId: level ? 'p' : null })
+  it.each([
+    [decay(0, 3), 'Pantry app', null],
+    [decay(1, 9), 'Pantry app', 'Dusty: 9 quiet weekdays on Pantry app'],
+    [decay(2, 15), 'Pantry app', 'Cobwebs: 15 quiet weekdays on Pantry app'],
+    [decay(3, 22), 'Pantry app', 'Mostly dark: 22 quiet weekdays on Pantry app'],
+    [decay(4, 31), null, 'Dark: 31 quiet weekdays on its quietest project']
+  ] as const)('level %#', (d, title, expected) => {
+    expect(decayText(d, title)).toBe(expected)
   })
 })

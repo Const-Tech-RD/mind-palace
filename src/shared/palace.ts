@@ -187,3 +187,11 @@ export function currentRoomOf(
   }
   return best?.roomId ?? null
 }
+
+const DECAY_WORD: Record<1 | 2 | 3 | 4, string> = { 1: 'Dusty', 2: 'Cobwebs', 3: 'Mostly dark', 4: 'Dark' }
+
+/** What a room's decay means, in words, or null when the room is clean. */
+export function decayText(decay: RoomState['decay'], projectTitle: string | null): string | null {
+  if (decay.level === 0) return null
+  return `${DECAY_WORD[decay.level]}: ${decay.weekdaysQuiet} quiet weekdays on ${projectTitle ?? 'its quietest project'}`
+}

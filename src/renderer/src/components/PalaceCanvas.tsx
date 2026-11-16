@@ -227,7 +227,8 @@ export function PalaceCanvas({
   natoRoom,
   agents,
   onPick,
-  onLabels
+  onLabels,
+  onHover
 }: {
   floor: FloorView
   /** The room zoomed into, or null for the whole palace. */
@@ -238,10 +239,13 @@ export function PalaceCanvas({
   onPick: (roomId: string) => void
   /** Screen positions (in CSS pixels of the stage) to pin a label over each room; called when the camera moves. */
   onLabels: (labels: CanvasLabel[]) => void
+  /** The room under the pointer, for the tooltip; null when none. */
+  onHover?: (roomId: string | null) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
   const [hover, setHover] = useState<string | null>(null)
+  useEffect(() => onHover?.(hover), [hover, onHover])
   const stage = useRef<{
     app: Application
     world: Container
