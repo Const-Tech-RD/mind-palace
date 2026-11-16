@@ -8,6 +8,7 @@
  */
 import type { AuthState, ChatEvent, ChatMessage, ChatSummary } from './chat'
 import type { PalaceView } from './palace'
+import type { MilestoneEdit, ProjectProgress, SweepCandidate } from './milestones'
 import type { PlacementChange } from './placements'
 import type { ProjectAction, ProjectSummary } from './projects'
 import type { ReminderItem, ReminderResponse } from './reminders'
@@ -87,6 +88,44 @@ export interface IpcContract {
     request: { projectId: string; action: ProjectAction }
     response: ProjectSummary
   }
+  /** A project's milestones, waiting proposals, folder and progress. */
+  'progress:get': {
+    request: { projectId: string }
+    response: ProjectProgress
+  }
+  /** Chats the model thinks belong to the project (only chats newer than the last sweep), for the person to confirm. */
+  'progress:sweep': {
+    request: { projectId: string }
+    response: { candidates: SweepCandidate[] }
+  }
+  /** Links the confirmed chats; unticked ones are never offered to this project again. */
+  'progress:link': {
+    request: { projectId: string; accept: string[]; dismiss: string[] }
+    response: ProjectProgress
+  }
+  /** The first draft of milestones; a refresh when there already are some. */
+  'progress:build': {
+    request: { projectId: string }
+    response: ProjectProgress
+  }
+  /** New proposals only; milestones are never changed. */
+  'progress:refresh': {
+    request: { projectId: string }
+    response: ProjectProgress
+  }
+  'progress:edit': {
+    request: { projectId: string; edit: MilestoneEdit }
+    response: ProjectProgress
+  }
+  'progress:answer': {
+    request: { projectId: string; proposalId: string; accept: boolean }
+    response: ProjectProgress
+  }
+  /** Sets the folder (`'pick'` opens a folder dialog; a cancelled dialog changes nothing) or clears it (null). */
+  'progress:folder': {
+    request: { projectId: string; folder: string | null }
+    response: ProjectProgress
+  }
   /** Every room's state from the progression engine, with what is new since it was last looked at. */
   'palace:view': {
     /** `focus`: the room zoomed into; its back walls rise and show what hangs on them. */
@@ -155,6 +194,8 @@ export type AppEvent =
   | { type: 'rooms_changed' }
   /** A notification was clicked: show this project's chat (or the projects panel if it has none). */
   | { type: 'open_project'; projectId: string; chatId: string | null }
+  /** A project's milestones, proposals, folder or running state changed. */
+  | { type: 'progress_changed'; projectId: string }
 
 /** One-way channel, main to renderer, carrying `AppEvent`s. */
 export const APP_EVENT_CHANNEL = 'app:event'
@@ -191,6 +232,14 @@ export const IPC_CHANNELS = [
   'project:track',
   'project:dismiss',
   'project:action',
+  'progress:get',
+  'progress:sweep',
+  'progress:link',
+  'progress:build',
+  'progress:refresh',
+  'progress:edit',
+  'progress:answer',
+  'progress:folder',
   'palace:view',
   'palace:seen',
   'palace:place',

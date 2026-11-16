@@ -1,13 +1,16 @@
 """
-Extracts what the person typed in their Claude Code sessions into import/sessions.jsonl.
+Extracts Claude Code sessions into import/sessions.jsonl.
 
-One line per session: id, project folder, start and end time, and every message
-the person wrote (with its timestamp). Tool results, slash-command wrappers,
-system reminders, hand-over briefs and subagent side chains are left out, and
-credentials, emails, phone and id numbers are replaced with placeholders.
+One line per session: id, project folder, start and end time, every message
+the person wrote and every answer's text (each with `role` and timestamp), and
+the files the session edited (`files`: path -> number of edits). Tool calls and
+results, slash-command wrappers, system reminders, hand-over briefs and subagent
+side chains are left out, and credentials, emails, phone and id numbers are
+replaced with placeholders. Answers are cut to ANSWER_MAX characters.
 Read-only on ~/.claude. The output is private: import/ is git-ignored.
 
     python3 scripts/extract-claude-code.py
+    python3 scripts/extract-claude-code.py --self-test
 """
 import collections
 import glob
@@ -20,7 +23,7 @@ ROOT = os.path.expanduser('~/.claude/projects')
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'import', 'sessions.jsonl')
 
 # Sessions created by this app's own chats and tests are not the person's history.
-SKIP_DIR = re.compile(r'mind-palace-e2e|Application-Support-mind-palace-claude-sessions')
+SKIP_DIR = re.compile(r'mind-palace-e2e|mind-palace-claude-sessions')
 NOISE = re.compile(
     r'^\s*(<command-|<local-command|<system-reminder|<task-notification|<user-prompt-submit-hook|<bash-|'
     r'Caveat: The messages below|\[Request interrupted|This session is being continued|<agent-message|'
@@ -31,6 +34,10 @@ TAGS = re.compile(r'<(system-reminder|ide_[a-z_]+|pasted_content[^>]*|artifact-v
 # A brief another session generated when it handed work over: not typed by the person.
 HANDOFF = re.compile(r'^\s*Background \(from the session that started this one\)', re.I)
 MAX_TEXT = 1500
+# Claude's answers carry the plans and decisions; long enough for a plan, short enough for the database.
+ANSWER_MAX = 4000
+# Tool calls that change a file: their `file_path` tells which folder a session worked in.
+EDIT_TOOLS = {'Edit', 'Write', 'MultiEdit', 'NotebookEdit'}
 
 # Things that must not be copied out of the transcripts. Each match becomes a
 # placeholder naming what was there. This is a safety net, not a guarantee:
@@ -67,32 +74,41 @@ def text_of(content):
     return None
 
 
-def clean(text):
+def clean(text, limit=MAX_TEXT):
     text = TAGS.sub('', text).strip()
     if not text or NOISE.match(text) or HANDOFF.match(text):
         return None
-    return redact(text)[:MAX_TEXT]
+    return redact(text)[:limit]
 
 
 def read_session(path):
-    messages, cwd, session_id = [], None, None
-    with open(path, errors='replace') as handle:
+    """A session's id, folder, messages (the person's and Claude's answers, with `role`) and files edited."""
+    messages, cwd, session_id, files = [], None, None, collections.Counter()
+    with open(path, encoding='utf8', errors='replace') as handle:
         for line in handle:
-            if '"type":"user"' not in line and '"type": "user"' not in line:
+            if '"type":"user"' not in line and '"type": "user"' not in line                     and '"type":"assistant"' not in line and '"type": "assistant"' not in line:
                 continue
             try:
                 row = json.loads(line)
             except ValueError:
                 continue
-            if row.get('type') != 'user' or row.get('isSidechain') or row.get('isMeta'):
+            kind = row.get('type')
+            if kind not in ('user', 'assistant') or row.get('isSidechain') or row.get('isMeta'):
                 continue
             cwd = cwd or row.get('cwd')
             session_id = session_id or row.get('sessionId')
-            raw = text_of((row.get('message') or {}).get('content'))
-            text = clean(raw) if raw else None
+            content = (row.get('message') or {}).get('content')
+            if kind == 'assistant' and isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get('type') == 'tool_use' and block.get('name') in EDIT_TOOLS:
+                        target = (block.get('input') or {}).get('file_path') or (block.get('input') or {}).get('notebook_path')
+                        if isinstance(target, str) and target:
+                            files[target] += 1
+            raw = text_of(content)
+            text = clean(raw, MAX_TEXT if kind == 'user' else ANSWER_MAX) if raw else None
             if text and row.get('timestamp'):
-                messages.append({'at': row['timestamp'], 'text': text})
-    return session_id, cwd, messages
+                messages.append({'at': row['timestamp'], 'role': kind, 'text': text})
+    return session_id, cwd, messages, dict(files)
 
 
 def main():
@@ -106,8 +122,8 @@ def main():
             if SKIP_DIR.search(folder):
                 skipped['created by this app'] += 1
                 continue
-            session_id, cwd, messages = read_session(path)
-            if not messages:
+            session_id, cwd, messages, files = read_session(path)
+            if not any(m['role'] == 'user' for m in messages):
                 skipped['nothing typed'] += 1
                 continue
             messages.sort(key=lambda m: m['at'])
@@ -119,6 +135,7 @@ def main():
                 'startedAt': messages[0]['at'],
                 'lastAt': messages[-1]['at'],
                 'messages': messages,
+                'files': files,
             })
             per_project[project] += 1
     # The same session id can be on disk twice (a resumed copy): keep the fuller one.
@@ -129,13 +146,14 @@ def main():
             fullest[session['id']] = session
     skipped['duplicate id'] += len(sessions) - len(fullest)
     sessions = sorted(fullest.values(), key=lambda s: s['startedAt'])
-    with open(OUT, 'w') as out:
+    with open(OUT, 'w', encoding='utf8') as out:
         for session in sessions:
             out.write(json.dumps(session, ensure_ascii=False) + '\n')
 
     total = sum(len(s['messages']) for s in sessions)
     days = sorted({m['at'][:10] for s in sessions for m in s['messages']})
-    print(f'{len(sessions)} sessions, {total} typed messages, {len(days)} distinct UTC days')
+    answers = sum(1 for s in sessions for m in s['messages'] if m['role'] == 'assistant')
+    print(f'{len(sessions)} sessions, {total - answers} typed messages and {answers} answers, {len(days)} distinct UTC days')
     if days:
         print(f'from {days[0]} to {days[-1]}')
     print('skipped:', dict(skipped))
@@ -143,5 +161,43 @@ def main():
     return sessions, per_project
 
 
+def self_test():
+    import tempfile
+    key = 'sk-ant-' + 'a1B2c3D4e5F6g7H8i9J0'
+    rows = [
+        {'type': 'user', 'sessionId': 's1', 'cwd': 'C:/a', 'timestamp': '2026-10-01T10:00:00Z',
+         'message': {'content': 'Please fix the login page'}},
+        {'type': 'assistant', 'timestamp': '2026-10-01T10:00:05Z', 'message': {'content': [
+            {'type': 'text', 'text': 'Done. I used ' + key + '. ' + 'word ' * 1000},
+            {'type': 'tool_use', 'name': 'Edit', 'input': {'file_path': 'C:/a/x.ts'}},
+            {'type': 'tool_use', 'name': 'Edit', 'input': {'file_path': 'C:/a/x.ts'}},
+            {'type': 'tool_use', 'name': 'Write', 'input': {'file_path': 'C:/a/y.md'}},
+            {'type': 'tool_use', 'name': 'Read', 'input': {'file_path': 'C:/a/z.ts'}}]}},
+        {'type': 'user', 'timestamp': '2026-10-01T10:00:06Z', 'message': {'content': [
+            {'type': 'tool_result', 'content': 'ok'}]}},
+        {'type': 'assistant', 'isSidechain': True, 'timestamp': '2026-10-01T10:00:07Z', 'message': {'content': [
+            {'type': 'text', 'text': 'side chain'},
+            {'type': 'tool_use', 'name': 'Edit', 'input': {'file_path': 'C:/a/side.ts'}}]}},
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, 's1.jsonl')
+        with open(path, 'w', encoding='utf8') as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + '\n')
+        session_id, cwd, messages, files = read_session(path)
+    assert session_id == 's1' and cwd == 'C:/a', (session_id, cwd)
+    assert [m['role'] for m in messages] == ['user', 'assistant'], messages
+    answer = messages[1]['text']
+    assert key not in answer and '[key removed]' in answer, answer[:80]
+    assert len(answer) == ANSWER_MAX, len(answer)
+    assert len(messages[0]['text']) <= MAX_TEXT
+    assert files == {'C:/a/x.ts': 2, 'C:/a/y.md': 1}, files
+    assert SKIP_DIR.search('C--Users-Claudio-Sanchez-AppData-Roaming-mind-palace-claude-sessions')
+    print('self-test passed')
+
+
 if __name__ == '__main__':
-    main()
+    if '--self-test' in sys.argv:
+        self_test()
+    else:
+        main()

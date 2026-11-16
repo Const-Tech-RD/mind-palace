@@ -14,6 +14,8 @@ import { createProjectService } from './palace/projects'
 import { createPalaceRepo } from './palace/repo'
 import { createPalaceView } from './palace/view'
 import { createProgressKeeper } from './palace/progress'
+import { createProgressRepo } from './progress/repo'
+import { createProgressService, type ProgressService } from './progress/service'
 import { createRoomsRepo } from './palace/roomsRepo'
 import { createRoomService } from './palace/roomService'
 import { catalogWithValidRooms, roomDefFromRow } from '@shared/rooms'
@@ -135,6 +137,19 @@ function start(): void {
       appVersion: app.getVersion()
     })
 
+  // The chat model, for project progress drafts and refreshes.
+  const askChatModel = (prompt: string, system: string, schema: Record<string, unknown>) =>
+    fakeModel ? fakeAnswer(fakeModel, schema) : askJson({
+      prompt,
+      system,
+      schema,
+      model: db.getSetting('model.chat') ?? DEFAULT_CHAT_MODEL,
+      cwd: sessionsDir,
+      appVersion: app.getVersion()
+    })
+  // Made after the classifier, whose quiet pass calls it.
+  let progress: ProgressService | null = null
+
   // The reminders and projects services call each other; `reminders` is set just below.
   let reminders: ReminderService | null = null
   const projects = createProjectService({
@@ -187,6 +202,18 @@ function start(): void {
     askModel: askSmallModel,
     onChanged,
     beforeMove: () => keeper.record(),
+    onQuiet: (chatId) => progress?.afterChatQuiet(chatId),
+    log: (message) => console.warn(`[mind-palace] ${message}`)
+  })
+  progress = createProgressService({
+    repo: createProgressRepo(db),
+    askSmall: askSmallModel,
+    askChat: askChatModel,
+    mailRoom: () => catalog.rules.classification.fallback_room,
+    timeZone,
+    onChanged: (projectId) => emitApp({ type: 'progress_changed', projectId }),
+    beforeMove: () => keeper.record(),
+    onChatsMoved: () => emitApp({ type: 'rooms_changed' }),
     log: (message) => console.warn(`[mind-palace] ${message}`)
   })
 
@@ -234,6 +261,23 @@ function start(): void {
     return { dismissed: true }
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
+  const progressService = progress
+  handle('progress:get', ({ projectId }) => progressService.get(projectId))
+  handle('progress:sweep', async ({ projectId }) => ({ candidates: await progressService.sweep(projectId) }))
+  handle('progress:link', ({ projectId, accept, dismiss }) => progressService.link(projectId, accept, dismiss))
+  handle('progress:build', ({ projectId }) => progressService.build(projectId))
+  handle('progress:refresh', ({ projectId }) => progressService.refresh(projectId))
+  handle('progress:edit', ({ projectId, edit }) => progressService.edit(projectId, edit))
+  handle('progress:answer', ({ proposalId, accept }) => progressService.answer(proposalId, accept))
+  handle('progress:folder', async ({ projectId, folder }) => {
+    if (folder !== 'pick') return progressService.setFolder(projectId, folder)
+    const window = getMainWindow()
+    const picked = window
+      ? await dialog.showOpenDialog(window, { title: 'Choose the project folder', properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ title: 'Choose the project folder', properties: ['openDirectory'] })
+    const chosen = picked.canceled ? undefined : picked.filePaths[0]
+    return chosen ? progressService.setFolder(projectId, chosen) : progressService.get(projectId)
+  })
   const roomService = createRoomService({
     store: db,
     roomsRepo,
@@ -332,12 +376,25 @@ if (!app.requestSingleInstanceLock()) {
 
 /**
  * Screenshot runs only (never a packaged build): answers small-model calls from
- * a JSON file `{ "materialize": …, "grouping": …, "classify": … }`, picked by
+ * a JSON file `{ "materialize": …, "grouping": …, "classify": …, "sweep": …,
+ * "digest": …, "draft": …, "refresh": … }`, picked by
  * the shape asked for, so the UI can be driven without the network.
  */
 function fakeAnswer(file: string, schema: Record<string, unknown>): Promise<JsonAnswer> {
   const required = (schema['required'] as string[] | undefined) ?? []
-  const kind = required.includes('items') ? 'materialize' : required.includes('areas') ? 'grouping' : 'classify'
+  const kind = required.includes('items')
+    ? 'materialize'
+    : required.includes('areas')
+      ? 'grouping'
+      : required.includes('chat_ids')
+        ? 'sweep'
+        : required.includes('planned')
+          ? 'digest'
+          : required.includes('milestones')
+            ? 'draft'
+            : required.includes('proposals')
+              ? 'refresh'
+              : 'classify'
   try {
     const answers = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
     if (!(kind in answers)) return Promise.resolve({ ok: false, error: `the fake model has no "${kind}" answer` })
