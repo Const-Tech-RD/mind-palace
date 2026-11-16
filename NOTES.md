@@ -434,3 +434,30 @@ So the SDK's own prompt and tool list are already about 1.7k; trimming them save
 
 E2E on Windows: `node tests/e2e/run.mjs --only S3` passes L1 with the new fake login. L2 fails only because the harness calls the `sqlite3` CLI (not installed here), and the report step then crashes on macOS's `sw_vers`: the E2E harness is macOS-only for now. S1, S2, S4 and S5 were not run, so P6's new completion check is unverified.
 
+
+## Phase 4 · Connected palace, on top of the first pass (2026-11-15)
+
+Built on Nato's first pass (`af75504`) with the review fixes merged; plan in `docs/superpowers/plans/2026-11-15-phase4-connected-palace.md`. Claudio chose to keep plan v2's rules, so two departures of the first pass are undone:
+
+- **Rooms are never drawn from the paintings.** `ROOM_CUT` and `assets/rooms/cut/` are gone; every item is a placeholder block (faces 100/82/62 %) until its sprite exists. The paintings stay as the header picture beside a room. `scripts/cut_rooms.py` is kept, but its output is no longer used by the app.
+- **Hallways are 2 tiles** (palace 18 x 18). Walls that face a hallway are low, so none hides a room behind it.
+
+What exists:
+
+- **Theme tokens for the canvas.** Every colour is a `--mp-*` CSS variable (`styles.css`), read by `src/renderer/src/theme.ts`; a test fails on any `#rrggbb` / `0xrrggbb` in `src/renderer`. The CSS build writes `#000` for `#000000`; the parser accepts both.
+- **Decay** (`RoomState.decay`): weekdays since the quietest active project's last activity; levels at 7/14/21/30. Drawn as dust, cobwebs, a grey-and-dim filter on the room's own layer, a flicker every 20-60 s at level 3, and a 600 ms "lights back on" when the level drops. Reduced motion turns off flicker and fades.
+- **`catalog/items.json`** declares the base and shared items (closes NOTES 8); every slot in `rules.json` has a `kind`. `cardboard_box` moved there from the Mail room's assets.
+- **Placements** (`placements` table, migration 0004; `src/shared/placements.ts`): a row moves an item, picks a variant or hides it, and always wins. Items without a row go to their catalog slot when it is free; otherwise they wait in the inventory with a reason. The desk and the trophy shelf can be hidden or re-skinned, not moved.
+- **Low walls.** In the whole-palace view, items on a low wall are not drawn; the label says "+N on the walls". With a room focused, its back walls rise to full height and show them.
+- **Room editor.** In a focused room, Arrange room: choose Move, then a spot from the list or an outlined spot on the floor; Hide/Show, variant, Reset.
+- **Tooltips and a plain list view** (List view button; remembered per viewer; reduced motion starts on the list).
+- **`npm run shots`** (`scripts/palace-shots.mjs`): seeds fixture databases with Node's built-in SQLite and screenshots the real app into `test-report/palace/`. `node scripts/palace-shots.mjs editor` drives the editor through the UI and a restart and checks the result.
+
+Verified on Windows 11: typecheck; 328 unit tests; `npm run shots` (empty, furnished, decay, hover, list, focused rooms) looked at; the editor run passes 4/4 (a moved chair and a re-placed crate survive a restart; a new unlock lands on the desk with nothing else moved).
+
+Not verified:
+
+- Flicker and "lights back on" in motion (only still frames); reduced motion by hand; a screen reader on the list view.
+- `tests/e2e/run.mjs` was not run after these changes (it needs macOS for its report and the `sqlite3` CLI); some of its palace selectors (V1-V7, e.g. "Finished room" captions) may need updating.
+- Wheel zoom and drag-to-pan were not tried by hand after the camera change.
+- Variants: no item has variants yet, so the picker has not been seen.
