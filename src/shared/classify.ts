@@ -140,8 +140,8 @@ export function buildClassifierPrompt(input: {
       '- project_title: a short name for the project (3 to 6 words), or null when is_project is false.',
       '- next_step: one small concrete next step for the project, or null when is_project is false.',
       '- existing_project_id: the id of an open project from the list that this chat clearly continues, otherwise null. Never invent an id.',
-      '- area: the area of life this chat is about, broad like a part of someone\'s life (software, finance, 3D printing, cooking, health), not a single project or tool. Reuse the key of a known area whenever it fits; only coin a new short key when none does.',
-      '- area_name: how to call that area in a few words ("3D printing"); for a known area, its name from the list.'
+      '- area: the area of life this chat is about, broad like a part of someone\'s life (software, finance, 3D printing, cooking, health), not a single project or tool. Building an app, a site, a script or any tool is software, whatever the app is about. Reuse the key of a known area whenever it fits; only coin a new short key when none does.',
+      '- area_name: how to call that area in 1 to 3 words ("3D printing"); for a known area, its name from the list.'
     ].join('\n')
   ].join('\n\n')
 }

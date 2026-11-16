@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildGroupingPrompt,
+  GROUPING_SYSTEM_PROMPT,
   buildMaterializePrompt,
   groupingSchema,
   interpretGrouping,
@@ -124,5 +125,13 @@ describe('grouping', () => {
 
   it('rejects an answer missing session ids', () => {
     expect(groupingSchema.safeParse({ areas: [{ key: 'x', name: 'X' }] }).success).toBe(false)
+  })
+})
+
+describe('area rules in the prompts', () => {
+  it('ask for short names and file building any app under software', () => {
+    const prompt = buildGroupingPrompt({ sessions: [], knownAreas: [] })
+    expect(prompt).toContain('1 to 3 words')
+    expect(GROUPING_SYSTEM_PROMPT).toMatch(/building an app.*software/i)
   })
 })

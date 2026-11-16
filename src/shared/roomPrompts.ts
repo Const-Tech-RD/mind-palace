@@ -80,7 +80,7 @@ export function buildMaterializePrompt(input: {
     slots,
     '## Your answer',
     [
-      `- name: the room's name, 1 to 3 words (for example "${input.name}").`,
+      '- name: the room\'s name, 1 to 3 words, plain like "Software", "Finance" or "3D printing".',
       '- belongs: one or two sentences on which chats belong in this room, broad enough for the whole area.',
       '- not_here: what looks close but belongs elsewhere, or an empty string.',
       '- examples: 2 to 4 short example requests that belong here.',
@@ -147,6 +147,7 @@ export const GROUPING_JSON_SCHEMA = {
 export const GROUPING_SYSTEM_PROMPT = [
   'You group a person\'s chats by the area of their life each is about.',
   'An area is broad, like a part of someone\'s life (software, finance, 3D printing, cooking, health), never a single project or tool: all software projects are one area.',
+  'Building an app, a site, a script or any tool is software, whatever the app is about (a game companion app is software, not gaming).',
   'Two areas that each exist without the other stay separate. Answer with the JSON object only.'
 ].join(' ')
 
@@ -160,7 +161,7 @@ export function buildGroupingPrompt(input: { sessions: Array<{ id: string } & Ar
     sessions,
     '## Your answer',
     [
-      '- areas: every area you find, each with key (short, lower case, reuse a known key when it fits), name (a few words) and session_ids (the chat ids in it).',
+      '- areas: every area you find, each with key (short, lower case, reuse a known key when it fits), name (1 to 3 words, like "Software" or "3D printing") and session_ids (the chat ids in it).',
       '- Put each chat in exactly one area. Leave out a chat that has no clear area.'
     ].join('\n')
   ].join('\n\n')
