@@ -6,6 +6,7 @@ import { AGENT_LABEL, type RoomAgent } from '@shared/agents'
 import type { ShellTier } from '@shared/catalog'
 import { iso, LOBBY as LOBBY_AT, PAINTED_WALL, roomAt, ROOM_TILES, tileAt, WALL_FULL, type FloorBlock, type FloorRoom, type FloorView, type FloorWall } from '@shared/floor'
 import { HELPER_FIGURE_HEIGHT, HELPER_SPRITE, LOBBY_SPRITE, NATO_FRAMES, ROOM_CUT } from './roomArt'
+import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
 
 /**
  * The connected palace, drawn as one PixiJS scene from the floor model. A room
@@ -26,23 +27,29 @@ const mix = (a: number, b: number, t: number): number => {
 }
 
 /** The room's shell tier shows in its floor and walls: bare is dull, finished is warm. */
-const SHELL: Record<ShellTier, { floor: number; wall: number; tint: number }> = {
-  bare: { floor: 0x4d4037, wall: 0x5a4c42, tint: 0.05 },
-  painted: { floor: 0x6f4e35, wall: 0x7a5a40, tint: 0.12 },
-  finished: { floor: 0x8a5a33, wall: 0x94683f, tint: 0.2 }
+const SHELL_TINT: Record<ShellTier, number> = { bare: 0.05, painted: 0.12, finished: 0.2 }
+const shellLook = (shell: ShellTier): { floor: number; wall: number; tint: number } => ({
+  floor: shell === 'bare' ? P.floorBare : shell === 'painted' ? P.floorPainted : P.floorFinished,
+  wall: shell === 'bare' ? P.wallBare : shell === 'painted' ? P.wallPainted : P.wallFinished,
+  tint: SHELL_TINT[shell]
+})
+/** Every colour comes from the `--mp-*` tokens, read when the canvas mounts. */
+let P: Palette
+/** A room's accent token, or the catalog's accent when the theme has none for that room. */
+function accentOf(room: { id: string; accent: string }): number {
+  try {
+    return readToken(roomAccentToken(room.id))
+  } catch {
+    return hex(room.accent)
+  }
 }
-const HALL_FLOOR = 0x35261d
-const OUTLINE = 0x150e0f
-const WOOD = 0xa9744a
-const PARCHMENT = 0xf3e6c8
-const GOLD = 0xe8b84a
-const SUCCESS = 0x9cc27a
 
 const pts = (corners: Array<{ x: number; y: number }>): number[] => corners.flatMap((c) => [c.x, c.y])
 
 /** A box on the floor: top face, then the two faces towards the viewer. */
-function drawBox(g: Graphics, x: number, y: number, w: number, d: number, z: number, h: number, colour: number, stroke = OUTLINE, strokeWidth = 1): void {
+function drawBox(g: Graphics, x: number, y: number, w: number, d: number, z: number, h: number, colour: number, stroke?: number, strokeWidth = 1): void {
   const top = z + h
+  stroke ??= P.outline
   g.poly(pts([iso(x, y + d, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x, y + d, z)])).fill(shade(colour, 0.78)).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
   g.poly(pts([iso(x + w, y, top), iso(x + w, y + d, top), iso(x + w, y + d, z), iso(x + w, y, z)])).fill(shade(colour, 0.6)).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
   g.poly(pts([iso(x, y, top), iso(x + w, y, top), iso(x + w, y + d, top), iso(x, y + d, top)])).fill(colour).stroke({ color: stroke, width: strokeWidth, alpha: 0.9 })
@@ -53,7 +60,7 @@ function drawFloor(g: Graphics, x: number, y: number, w: number, d: number, colo
   // Tile seams, faint.
   for (let i = 0; i <= w; i++) g.moveTo(iso(x + i, y).x, iso(x + i, y).y).lineTo(iso(x + i, y + d).x, iso(x + i, y + d).y)
   for (let j = 0; j <= d; j++) g.moveTo(iso(x, y + j).x, iso(x, y + j).y).lineTo(iso(x + w, y + j).x, iso(x + w, y + j).y)
-  g.stroke({ color: OUTLINE, width: 1, alpha: 0.22 })
+  g.stroke({ color: P.outline, width: 1, alpha: 0.22 })
 }
 
 const WALL_T = 0.14
@@ -73,11 +80,11 @@ function drawWall(g: Graphics, wall: FloorWall, colour: number): void {
 }
 
 function blockColour(block: FloorBlock, accent: number): number {
-  if (block.item === 'trophy') return GOLD
-  if (block.layer === 'rug') return mix(0x5a3a2a, accent, 0.45)
-  if (block.layer === 'wall_item') return block.item === 'window' ? 0x9cc9d6 : PARCHMENT
+  if (block.item === 'trophy') return P.gold
+  if (block.layer === 'rug') return mix(P.rug, accent, 0.45)
+  if (block.layer === 'wall_item') return block.item === 'window' ? P.glass : P.parchment
   // Signature items carry the room's colour; shared furniture is plain wood.
-  return block.item.startsWith('base_') || block.item === 'trophy_shelf' ? WOOD : mix(WOOD, accent, 0.55)
+  return block.item.startsWith('base_') || block.item === 'trophy_shelf' ? P.wood : mix(P.wood, accent, 0.55)
 }
 
 /** How much of a painted room's colour shows at each shell tier: a bare room is dim and almost grey. */
@@ -91,8 +98,8 @@ function shellFilter(shell: ShellTier): ColorMatrixFilter | null {
 
 function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: boolean, painting: Texture | undefined): Container {
   const [ox, oy] = room.origin
-  const look = SHELL[room.shell]
-  const accent = hex(room.accent)
+  const look = shellLook(room.shell)
+  const accent = accentOf(room)
   const cut = ROOM_CUT[room.id]
   if (painting && cut) {
     const origin = iso(ox, oy)
@@ -132,7 +139,7 @@ function drawRoom(layer: Container, room: FloorRoom, hovered: boolean, focused: 
 
   const things = new Graphics()
   for (const block of room.blocks) {
-    drawBox(things, block.x, block.y, block.w, block.d, block.z, block.h, blockColour(block, accent), block.isNew ? GOLD : OUTLINE, block.isNew ? 2.5 : 1)
+    drawBox(things, block.x, block.y, block.w, block.d, block.z, block.h, blockColour(block, accent), block.isNew ? P.gold : P.outline, block.isNew ? 2.5 : 1)
   }
   layer.addChild(things)
 
@@ -265,6 +272,7 @@ export function PalaceCanvas({
     const el = host.current
     if (!el) return
     let cancelled = false
+    P = readPalette()
     const app = new Application()
     void (async () => {
       await app.init({ resizeTo: el, backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 })
@@ -296,7 +304,7 @@ export function PalaceCanvas({
       const standing = textures.walk[3]!
       if (cancelled) return
       const shadow = new Graphics()
-      shadow.ellipse(0, 0, 15, 6).fill({ color: 0x000000, alpha: 0.35 })
+      shadow.ellipse(0, 0, 15, 6).fill({ color: P.shadow, alpha: 0.35 })
       const nato = new Sprite(standing)
       nato.anchor.set(0.5, 0.985)
       const natoScale = CHARACTER_HEIGHT / NATO_FRAMES.figureHeight
@@ -408,7 +416,7 @@ export function PalaceCanvas({
     if (!ready || !s || !s.textures) return
     const halls = s.world.children[0] as Graphics
     halls.clear()
-    for (const hall of floor.halls) drawFloor(halls, hall.x, hall.y, hall.w, hall.d, HALL_FLOOR)
+    for (const hall of floor.halls) drawFloor(halls, hall.x, hall.y, hall.w, hall.d, P.hallway)
     for (const old of s.rooms.removeChildren()) old.destroy({ children: true })
     helpers.current = []
     const frontMost = floor.rooms[floor.rooms.length - 1]
@@ -444,9 +452,9 @@ export function PalaceCanvas({
       if (agent && agent.state !== 'idle') {
         // A dot over an active helper: the room's colour while working, green when done.
         const dot = new Graphics()
-        const colour = agent.state === 'done' ? SUCCESS : hex(room.accent)
+        const colour = agent.state === 'done' ? P.success : accentOf(room)
         dot.circle(spot.x, spot.y - CHARACTER_HEIGHT * 0.72 - 9, 9).fill({ color: colour, alpha: 0.28 })
-        dot.circle(spot.x, spot.y - CHARACTER_HEIGHT * 0.72 - 9, 5).fill(colour).stroke({ color: OUTLINE, width: 1 })
+        dot.circle(spot.x, spot.y - CHARACTER_HEIGHT * 0.72 - 9, 5).fill(colour).stroke({ color: P.outline, width: 1 })
         cast.addChild(dot)
       }
     }

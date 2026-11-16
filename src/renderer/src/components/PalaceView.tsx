@@ -250,7 +250,7 @@ export function PalaceView() {
               )}
               <figure
                 key="stage"
-                className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-brass/35 bg-[#1e1612]"
+                className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-brass/35 bg-ink"
                 data-testid="palace-stage"
                 data-room={room?.id ?? ''}
               >
