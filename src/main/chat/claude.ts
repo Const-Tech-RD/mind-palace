@@ -5,8 +5,8 @@
  * login: no API key. Everything else in the app sees the small event stream
  * below, so moving to another way of calling the model is a change to this file.
  */
-import { sdkEnv } from '@shared/sdkEnv'
 import type { Options, SDKAssistantMessageError, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import { sdkEnv } from './env'
 
 export type ClaudeEvent =
   /** The SDK session that holds this conversation; pass it back as `resume`. */
@@ -94,6 +94,7 @@ function buildOptions(params: AskParams): Options {
     // hooks, skills or MCP servers are loaded into this app's chats.
     settingSources: [],
     mcpServers: {},
+    // An allow-list, never the app's whole environment: see env.ts.
     env: sdkEnv(process.env, params.appVersion),
     ...(params.resume ? { resume: params.resume } : {})
   }

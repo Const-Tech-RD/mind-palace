@@ -1,10 +1,13 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CatalogError, loadCatalog } from '../src/main/catalog/loader'
 import { CATALOG_DIR } from './helpers'
 import { formatIssue } from './shared'
+
+/** Paths in messages use the OS separator; the expectations below use `/`. */
+const posix = (text: string): string => text.split(sep).join('/')
 
 const temps: string[] = []
 afterEach(() => {
@@ -55,7 +58,7 @@ describe('the bundled catalog', () => {
   })
 
   it('reports the known oddities as warnings, not errors', () => {
-    const short = catalog.warnings.map((w) => `${w.file.slice(CATALOG_DIR.length + 1)}: ${w.field}: ${w.message}`)
+    const short = catalog.warnings.map((w) => `${posix(w.file.slice(CATALOG_DIR.length + 1))}: ${w.field}: ${w.message}`)
     expect(short).toEqual([
       'rules.json: base_ladder.goals.0.at: "at": 1 is not one of tracks.goals.milestones [2, 3, 5, 8, 13]; unlocked at that count anyway',
       'rooms/art.json: signature.4.slot: "art_pottery_wheel" has footprint [1, 1] but slot "floor_right" is [2, 1]',
@@ -175,7 +178,7 @@ describe('a broken catalog fails loudly with path and field', () => {
   it.each(cases)('$name', ({ file, edit, expected }) => {
     const { dir, file: path } = brokenCopy(file, edit)
     const issues = issuesOf(dir)
-    expect(issues.join('\n')).toMatch(expected)
+    expect(posix(issues.join('\n'))).toMatch(expected)
     // The absolute path of the broken file is in the message itself.
     expect(issues.some((line) => line.startsWith(`${path}: `))).toBe(true)
   })

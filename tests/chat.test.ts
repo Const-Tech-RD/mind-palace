@@ -207,6 +207,7 @@ function memoryRepo(): ChatRepo & { rows: Map<string, ChatRow>; stored: Array<Ch
     setSession(chatId, sdkSessionId) {
       rows.get(chatId)!.sdkSessionId = sdkSessionId
     },
+    fillMissingLocalDays: () => 0,
     delete: (chatId) => rows.delete(chatId)
   }
 }

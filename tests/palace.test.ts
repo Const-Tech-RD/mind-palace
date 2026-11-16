@@ -227,7 +227,7 @@ describe('eval scoring', () => {
 function memoryPalace() {
   const chats = new Map<string, ChatClassificationRow>()
   const projects = new Map<string, ProjectSummary & { originChatId: string | null }>()
-  const completions: Array<{ projectId: string; roomId: string; localDay: string; counted: boolean }> = []
+  const completions: Array<{ projectId: string; roomId: string; localDay: string }> = []
   let n = 0
   const repo: PalaceRepo = {
     chat: (id) => (chats.has(id) ? { ...chats.get(id)! } : undefined),
@@ -287,7 +287,6 @@ function memoryPalace() {
       for (const p of linked) p.lastActivityAt = at
       return linked.map((p) => p.id)
     },
-    hasCountedCompletion: (roomId, localDay) => completions.some((c) => c.roomId === roomId && c.localDay === localDay && c.counted),
     addCompletion(input) {
       completions.push({ ...input })
     },
@@ -529,7 +528,7 @@ describe('project service', () => {
     expect(h.projects.has(id)).toBe(true)
   })
 
-  it('Done writes a completion on the local day; a second one that day in the room is not counted', () => {
+  it('Done writes a completion on the local day for every project, with no counted flag', () => {
     const h = harness()
     const a = h.suggest('c1', 'A')
     const b = h.suggest('c2', 'B')
@@ -541,9 +540,10 @@ describe('project service', () => {
     h.service.act(b, 'done')
     h.service.act(other, 'done')
     expect(h.completions).toEqual([
-      { projectId: a, roomId: 'coding', localDay: '2026-11-15', counted: true },
-      { projectId: b, roomId: 'coding', localDay: '2026-11-15', counted: false },
-      { projectId: other, roomId: 'music', localDay: '2026-11-15', counted: true }
+      // Both Coding completions are kept; the engine counts that day once.
+      { projectId: a, roomId: 'coding', localDay: '2026-11-15' },
+      { projectId: b, roomId: 'coding', localDay: '2026-11-15' },
+      { projectId: other, roomId: 'music', localDay: '2026-11-15' }
     ])
   })
 

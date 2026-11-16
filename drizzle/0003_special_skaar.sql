@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `local_day` text;
