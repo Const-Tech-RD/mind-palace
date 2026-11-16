@@ -1143,7 +1143,7 @@ async function sessionPalace() {
       failShot
     },
     async () => {
-      await page.getByRole('button', { name: 'Chat here' }).click()
+      await page.getByRole('button', { name: 'Chat here', exact: true }).click()
       const panel = page.getByTestId('chat-panel')
       await panel.getByText('This chat will be filed in the Coding room.').waitFor({ timeout: 5_000 })
       expect(await page.locator('figcaption', { hasText: 'Painted room' }).isVisible(), 'the room is not visible beside the chat')
@@ -1190,6 +1190,76 @@ async function sessionPalace() {
       await page.locator('figcaption', { hasText: 'Painted room' }).waitFor({ timeout: 5_000 })
       expect((await page.getByTestId('chat-panel').count()) === 0, 'the chat panel stayed open after going to a room')
       return { observed: `Started on the map. First result: ${first}. Enter opened it beside the Music studio; "coding" went to the Coding room.`, screenshots: [s1, s2] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'V8', area: 'Palace', title: 'Things in a room can be clicked',
+      steps: [
+        'Open the Coding room. Click the stage jacket.',
+        'Press Esc.',
+        'Click the desk.'
+      ],
+      expected:
+        'The jacket opens a card listing the room\'s three finished projects, each with Reopen. Esc closes the card and stays in the room. The desk starts a chat that will be filed in the Coding room.',
+      failShot
+    },
+    async () => {
+      await roomTab('Coding room').click()
+      await settled()
+      const stage = page.getByTestId('palace-stage')
+      const kinds = await stage.locator('button.hotspot').evaluateAll((els) => els.map((el) => el.getAttribute('data-hotspot')).sort().join(','))
+      expect(kinds === 'chat,chats,finished,projects', `the room's clickable things were: ${kinds}`)
+      await stage.getByRole('button', { name: /^The stage jacket:/ }).click()
+      const card = page.getByTestId('room-panel')
+      await card.waitFor({ timeout: 5_000 })
+      const titles = (await card.locator('li').allInnerTexts()).map((t) => t.split('\n')[0].trim()).sort().join(', ')
+      expect(titles === 'CSV importer, Login page, Sync module refactor', `the finished projects listed were: ${titles}`)
+      expect((await card.getByRole('button', { name: /^Reopen:/ }).count()) === 3, 'not every finished project offers Reopen')
+      const s1 = await shot(page, 'V8-card', 'V8 · Clicking the stage jacket in the Coding room: its finished projects, on a parchment card')
+      await page.keyboard.press('Escape')
+      await until(async () => (await card.count()) === 0, { timeout: 5_000, what: 'the card to close' })
+      expect((await stageRoom()) === 'coding', 'Esc left the room instead of only closing the card')
+      await stage.getByRole('button', { name: /^The desk:/ }).click()
+      await page.getByTestId('chat-panel').getByText('This chat will be filed in the Coding room.').waitFor({ timeout: 5_000 })
+      await page.getByTestId('chat-panel').getByRole('button', { name: 'Close chat' }).click()
+      return { observed: `Things: ${kinds}. The jacket listed: ${titles}. Esc closed the card and stayed. The desk started a chat for the room.`, screenshots: [s1] }
+    }
+  )
+
+  await testCase(
+    {
+      id: 'V9', area: 'Palace', title: 'Reminders can be answered on the map, and a chat can be dragged onto a room',
+      steps: [
+        'Go to All rooms and click the reminders button.',
+        'Show the chat list and drag "Daily fingerstyle practice" onto the Art workshop tab.'
+      ],
+      expected:
+        'The reminders card opens on the map (empty here). After the drag the chat is in the Art workshop as a move made by the person, and the activity strip says so.',
+      failShot
+    },
+    async () => {
+      await roomTab('All rooms').click()
+      await settled()
+      const stage = page.getByTestId('palace-stage')
+      await stage.getByRole('button', { name: /^\d+ reminders?$/ }).click()
+      const card = page.getByTestId('room-panel')
+      await card.getByText('No reminder is waiting.').waitFor({ timeout: 5_000 })
+      await page.keyboard.press('Escape')
+      await until(async () => (await card.count()) === 0, { timeout: 5_000, what: 'the card to close' })
+      const showChats = page.getByRole('button', { name: 'Show chats' })
+      if (await showChats.count()) await showChats.click()
+      const row = page.getByRole('navigation', { name: 'Chats' }).getByRole('button', { name: 'Daily fingerstyle practice', exact: true })
+      await row.dragTo(roomTab('Art workshop'))
+      await until(() => sql(userData, "select room_id || '|' || room_source from chats where id = 'c-music'") === 'art|user', { timeout: 10_000, what: 'the chat to be filed in the Art workshop' })
+      await activityLine(page, /^You moved .Daily fingerstyle practice. to the Art workshop$/)
+      await page.locator('nav[aria-label="Chats"] h2', { hasText: /art workshop/i }).waitFor({ timeout: 10_000 })
+      await settled()
+      return {
+        observed: 'The reminders card opened and closed on the map. Dragging the chat onto the Art workshop filed it there as a user move.',
+        screenshots: [await shot(page, 'V9-dragged', 'V9 · After dragging a chat onto the Art workshop: it is listed there and the activity strip reports the move')]
+      }
     }
   )
 

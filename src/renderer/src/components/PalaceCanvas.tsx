@@ -187,11 +187,11 @@ interface Camera {
   y: number
 }
 
-export interface CanvasLabel {
-  id: string
-  left: number
-  top: number
-}
+/** How the floor is placed on the stage: screen = floor * scale + (x, y), in CSS pixels. */
+export type CanvasCamera = Camera
+
+/** The data type a dragged chat carries, so a room can take it. */
+export const CHAT_DRAG_TYPE = 'application/x-mind-palace-chat'
 
 export function PalaceCanvas({
   floor,
@@ -199,7 +199,8 @@ export function PalaceCanvas({
   natoRoom,
   agents,
   onPick,
-  onLabels
+  onCamera,
+  onDropChat
 }: {
   floor: FloorView
   /** The room zoomed into, or null for the whole palace. */
@@ -208,8 +209,10 @@ export function PalaceCanvas({
   natoRoom: string | null
   agents: Readonly<Record<string, RoomAgent>>
   onPick: (roomId: string) => void
-  /** Screen positions (in CSS pixels of the stage) to pin a label over each room; called when the camera moves. */
-  onLabels: (labels: CanvasLabel[]) => void
+  /** Called whenever the camera moves, so things can be pinned over the floor in HTML. */
+  onCamera: (camera: CanvasCamera) => void
+  /** A chat dragged from the list was dropped on a room. */
+  onDropChat: (roomId: string, chatId: string) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
@@ -233,8 +236,8 @@ export function PalaceCanvas({
     strolling: boolean
   }>({ at: [LOBBY[0], LOBBY[1]], path: [], room: null, home: null, roomId: null, nextStroll: 0, strolling: false })
   const helpers = useRef<HelperSprite[]>([])
-  const latest = useRef({ floor, focus, onPick, onLabels, agents })
-  latest.current = { floor, focus, onPick, onLabels, agents }
+  const latest = useRef({ floor, focus, onPick, onCamera, onDropChat, agents })
+  latest.current = { floor, focus, onPick, onCamera, onDropChat, agents }
   const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
 
   /** The camera that shows a room, or the whole floor, inside the stage. */
@@ -382,13 +385,7 @@ export function PalaceCanvas({
         const key = `${cam.now.scale.toFixed(3)}|${cam.now.x.toFixed(1)}|${cam.now.y.toFixed(1)}`
         if (key !== last) {
           last = key
-          latest.current.onLabels(
-            latest.current.floor.rooms.map((room) => {
-              const tall = ROOM_CUT[room.id] ? PAINTED_WALL : room.walls.some((wall) => wall.height === WALL_FULL) ? WALL_FULL : 1
-              const at = iso(room.origin[0], room.origin[1], tall - 0.6)
-              return { id: room.id, left: at.x * cam.now.scale + cam.now.x, top: Math.max(34, at.y * cam.now.scale + cam.now.y) }
-            })
-          )
+          latest.current.onCamera({ ...cam.now })
         }
       })
       setReady(true)
@@ -427,7 +424,7 @@ export function PalaceCanvas({
       // Zoomed into a room, the others step back so their walls do not crowd the view.
       layer.alpha = focus !== null && focus !== room.id ? 0.16 : 1
       s.rooms.addChild(layer)
-      const cast = drawRoom(layer, room, hover === room.id && focus === null, focus === room.id, s.textures.rooms[room.id])
+      const cast = drawRoom(layer, room, hover === room.id && focus !== room.id, focus === room.id, s.textures.rooms[room.id])
       const agent = agents[room.id]
       const painted = ROOM_CUT[room.id]
       const spotTile = painted ? [room.origin[0] + painted.helper[0], room.origin[1] + painted.helper[1]] : [room.helperSpots[0]![0] + 0.5, room.helperSpots[0]![1] + 0.5]
@@ -501,7 +498,7 @@ export function PalaceCanvas({
   useEffect(() => {
     const el = host.current
     if (!el) return
-    const roomUnder = (event: PointerEvent | WheelEvent): string | null => {
+    const roomUnder = (event: PointerEvent | WheelEvent | DragEvent): string | null => {
       const box = el.getBoundingClientRect()
       const cam = camera.current.now
       const tile = tileAt({ x: (event.clientX - box.left - cam.x) / cam.scale, y: (event.clientY - box.top - cam.y) / cam.scale })
@@ -548,12 +545,36 @@ export function PalaceCanvas({
       cam.goal = { scale, x: px - ((px - cam.goal.x) / cam.goal.scale) * scale, y: py - ((py - cam.goal.y) / cam.goal.scale) * scale }
       cam.free = true
     }
+    // A chat dragged from the list can be dropped on a room to file it there.
+    const dragOver = (event: DragEvent): void => {
+      if (!event.dataTransfer?.types.includes(CHAT_DRAG_TYPE)) return
+      const room = roomUnder(event)
+      setHover(room)
+      if (room) {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+      }
+    }
+    const drop = (event: DragEvent): void => {
+      const chatId = event.dataTransfer?.getData(CHAT_DRAG_TYPE)
+      const room = roomUnder(event)
+      setHover(null)
+      if (!chatId || !room) return
+      event.preventDefault()
+      latest.current.onDropChat(room, chatId)
+    }
+    el.addEventListener('dragover', dragOver)
+    el.addEventListener('dragleave', leave)
+    el.addEventListener('drop', drop)
     el.addEventListener('pointerdown', down)
     el.addEventListener('pointermove', move)
     el.addEventListener('pointerup', up)
     el.addEventListener('pointerleave', leave)
     el.addEventListener('wheel', wheel, { passive: false })
     return () => {
+      el.removeEventListener('dragover', dragOver)
+      el.removeEventListener('dragleave', leave)
+      el.removeEventListener('drop', drop)
       el.removeEventListener('pointerdown', down)
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerup', up)

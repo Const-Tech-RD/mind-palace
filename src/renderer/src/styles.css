@@ -372,3 +372,55 @@ h3.uppercase {
     transition: none;
   }
 }
+
+/* Things in a room that can be clicked: a small dot that names itself on hover. */
+@keyframes hotspot-ping {
+  0% {
+    box-shadow: 0 0 0 0 rgb(243 230 200 / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgb(243 230 200 / 0);
+  }
+}
+@keyframes panel-pop {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+}
+.hotspot-dot {
+  animation: hotspot-ping 2.4s ease-out infinite;
+  transition: scale 0.15s ease;
+}
+.hotspot:hover .hotspot-dot,
+.hotspot:focus-visible .hotspot-dot,
+.hotspot.open .hotspot-dot {
+  scale: 1.35;
+}
+.hotspot.waiting .hotspot-dot,
+.reminder-waiting {
+  animation: hotspot-ping 1.2s ease-out infinite;
+}
+.hotspot-tip {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.hotspot:hover .hotspot-tip,
+.hotspot:focus-visible .hotspot-tip,
+.hotspot.waiting .hotspot-tip {
+  opacity: 1;
+}
+.hotspot.open .hotspot-tip {
+  opacity: 0;
+}
+.room-panel {
+  animation: panel-pop 0.14s ease-out both;
+  transform-origin: 10% 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hotspot-dot,
+  .reminder-waiting,
+  .room-panel {
+    animation: none;
+  }
+}
