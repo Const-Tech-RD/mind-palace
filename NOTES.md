@@ -583,3 +583,11 @@ Work from here on is on the branch `nato/palace`. PR #6 is a draft and is not to
 Verified: typecheck; 352 unit tests (14 new for the steward's rules); E2E S6 (music plays a real file, pause, mute, stays paused after reload) and S7 (an order in English, one in Spanish, delete waits for yes and no cancels, and recordings made with the Mac's voices are transcribed locally in both languages); the full E2E run otherwise as before.
 
 Not verified: a real microphone (the tests feed recordings to the transcriber directly, so the recording code, the silence detection and the macOS microphone prompt have not run); the spoken voice (switched off in tests); reading a written answer aloud; the music file picker itself (the test sets the file in the database); a packaged build, where the native speech runtime and the microphone usage description need checking.
+
+## Importing claude.ai chats (2026-11-16)
+
+`scripts/import-claude-ai.py` reads the claude.ai data export (the zip, its folder, or `conversations.json`) and writes each conversation as a chat with both sides and the real timestamps. Ids start with `ca-`; a second run replaces the first; nothing else is touched; the database is backed up first; secrets are replaced by the same patterns as the Claude Code import; each message's local day is stamped in the settings timezone.
+
+Imported chats arrive unsorted and, by default, marked as already classified. Left unmarked, the app's quiet check would classify every one of them by itself on its next runs, one model call each; `--let-app-sort` asks for exactly that.
+
+Verified on a made-up export against a copy of a real database: dry run, apply, apply again (replaces), redaction of an email and a password, an attachment named but not copied, an empty conversation left out, other chats untouched. Not verified: a real export. The format is as known in mid-2026; the script says what it found if the shape differs.
