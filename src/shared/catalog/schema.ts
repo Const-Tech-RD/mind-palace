@@ -23,6 +23,10 @@ export type ShellTier = (typeof SHELL_TIERS)[number]
 export const LAYERS = ['wall_item', 'rug', 'floor_item', 'surface_item'] as const
 export type Layer = (typeof LAYERS)[number]
 
+/** What a slot accepts. An item lists the kinds it may stand in; the room editor only offers those slots. */
+export const SLOT_KINDS = ['desk', 'desk_surface', 'floor', 'rug', 'wall', 'trophy_shelf'] as const
+export type SlotKind = (typeof SLOT_KINDS)[number]
+
 const id = z.string().regex(/^[a-z][a-z0-9_]*$/, 'must be a lower-case id (letters, digits, underscores)')
 const positiveInt = z.number().int().positive()
 const pair = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
@@ -70,6 +74,7 @@ const ladderStepSchema = z
   })
 
 const slotSchema = z.object({
+  kind: z.enum(SLOT_KINDS),
   layer: z.enum(LAYERS),
   tile: pair.optional(),
   footprint: pair.optional(),
@@ -153,7 +158,18 @@ const assetSchema = z.object({
   footprint: pair.optional(),
   width: positiveInt.optional(),
   height: z.number().nonnegative(),
+  /** Slot kinds it may stand in. Room assets may leave it out: they then take their slots' kinds. */
+  slots: z.array(z.enum(SLOT_KINDS)).min(1).optional(),
+  /** Art variants (asset spec 7), same canvas and anchor; the user picks one. */
+  variants: z.array(id).default([]),
+  mirrorable: z.boolean().default(true),
   note: z.string().optional()
+})
+
+/** catalog/items.json: base and shared items, which no room file describes. */
+export const itemsFileSchema = z.object({
+  note: z.string().optional(),
+  items: z.record(id, assetSchema.extend({ slots: z.array(z.enum(SLOT_KINDS)).min(1) }))
 })
 
 export const roomSchema = z.object({
@@ -173,11 +189,27 @@ export type SlotDef = Rules['layout']['slots'][string]
 export type RoomDef = z.infer<typeof roomSchema>
 export type SignatureStep = RoomDef['signature'][number]
 
+export type ItemsFile = z.infer<typeof itemsFileSchema>
+
+/** One placeable item, from items.json or a room's assets. */
+export interface ItemDef {
+  id: string
+  layer: Layer
+  footprint?: [number, number]
+  width?: number
+  height: number
+  slots: SlotKind[]
+  variants: string[]
+  mirrorable: boolean
+}
+
 /** Everything the engine and the UI need from the catalog files. */
 export interface Catalog {
   rules: Rules
   /** Keyed by room id. */
   rooms: Record<string, RoomDef>
+  /** Every placeable item: items.json merged with each room's assets. */
+  items: Record<string, ItemDef>
 }
 
 /** One problem in one catalog file, addressed by file path and field. */

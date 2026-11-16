@@ -28,6 +28,39 @@
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 }
 
+/*
+ * Palace canvas colours (read by src/renderer/src/theme.ts). Placeholder
+ * blocks, walls and floors until sprites exist; a theme overrides these.
+ */
+:root {
+  --mp-parchment: #f3e6c8;
+  --mp-gold: #e8b84a;
+  --mp-success: #9cc27a;
+  --mp-outline: #150e0f;
+  --mp-shadow: #000000;
+  --mp-ph-hallway: #35261d;
+  --mp-ph-floor-bare: #4d4037;
+  --mp-ph-floor-painted: #6f4e35;
+  --mp-ph-floor-finished: #8a5a33;
+  --mp-ph-wall-bare: #5a4c42;
+  --mp-ph-wall-painted: #7a5a40;
+  --mp-ph-wall-finished: #94683f;
+  --mp-ph-wood: #a9744a;
+  --mp-ph-rug: #5a3a2a;
+  --mp-ph-glass: #9cc9d6;
+  --mp-dark: #0b0706;
+  --mp-dust: #cbb89a;
+  --mp-cobweb: #d8d2c4;
+  /* Where the character walks: the tint that darkens the hallway boards (the plaza's are untinted), their brass edge, and the lanterns' light. */
+  --mp-walk-tint: #a8907c;
+  --mp-walk-edge: #b58956;
+  --mp-walk-lantern: #f8d077;
+  --mp-room-coding: #5eead4;
+  --mp-room-music: #f0abfc;
+  --mp-room-art: #fb923c;
+  --mp-room-mailroom: #a9adc6;
+}
+
 html,
 body,
 #root {

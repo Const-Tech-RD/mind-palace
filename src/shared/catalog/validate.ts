@@ -1,4 +1,4 @@
-import type { CatalogIssue, RoomDef, Rules } from './schema'
+import type { CatalogIssue, ItemDef, ItemsFile, RoomDef, Rules, SlotKind } from './schema'
 
 /**
  * Cross-file checks that a single zod schema cannot express: every slot, room
@@ -10,6 +10,14 @@ import type { CatalogIssue, RoomDef, Rules } from './schema'
 export interface CrossValidation {
   errors: CatalogIssue[]
   warnings: CatalogIssue[]
+  /** Every placeable item: items.json merged with each room's assets. */
+  items: Record<string, ItemDef>
+}
+
+/** catalog/items.json as loaded, with its path for messages. */
+export interface SharedItems {
+  file: string
+  items: ItemsFile['items']
 }
 
 export interface RoomFile {
@@ -17,13 +25,19 @@ export interface RoomFile {
   room: RoomDef
 }
 
-export function crossValidateCatalog(rulesFile: string, rules: Rules, roomFiles: RoomFile[]): CrossValidation {
+export function crossValidateCatalog(
+  rulesFile: string,
+  rules: Rules,
+  roomFiles: RoomFile[],
+  shared: SharedItems = { file: 'items.json', items: {} }
+): CrossValidation {
   const errors: CatalogIssue[] = []
   const warnings: CatalogIssue[] = []
   const err = (file: string, field: string, message: string): void => void errors.push({ file, field, message })
   const warn = (file: string, field: string, message: string): void => void warnings.push({ file, field, message })
 
   const slots = rules.layout.slots
+  const trophyItem = rules.tracks.goals.every_completion
   const hasSlot = (slot: string): boolean => Object.hasOwn(slots, slot)
 
   // --- rules.json on its own -------------------------------------------------
@@ -41,6 +55,25 @@ export function crossValidateCatalog(rulesFile: string, rules: Rules, roomFiles:
   for (const track of ['streak', 'goals'] as const) {
     for (const step of rules.base_ladder[track]) if (step.item !== undefined) ladderItems.add(step.item)
   }
+
+  // --- items: every item a ladder places is defined, and fits its own slot ---
+  const roomAssetIds = new Set(roomFiles.flatMap(({ room }) => Object.keys(room.assets)))
+  const isDefined = (item: string): boolean => Object.hasOwn(shared.items, item) || roomAssetIds.has(item)
+  const checkSharedItem = (item: string, slotName: string, field: string): void => {
+    if (!isDefined(item)) return err(rulesFile, `${field}.item`, `"${item}" has no item definition (items.json or a room's assets)`)
+    const def = shared.items[item]
+    const kind = slots[slotName]?.kind
+    if (def && kind && !def.slots.includes(kind)) {
+      err(shared.file, `items.${item}.slots`, `does not include "${kind}", the kind of slot "${slotName}" (${rulesFile} ${field})`)
+    }
+  }
+  rules.base_ladder.start.forEach((step, i) => checkSharedItem(step.item, step.slot, `base_ladder.start.${i}`))
+  for (const track of ['streak', 'goals'] as const) {
+    rules.base_ladder[track].forEach((step, i) => {
+      if (step.item !== undefined && step.slot !== undefined) checkSharedItem(step.item, step.slot, `base_ladder.${track}.${i}`)
+    })
+  }
+  checkSharedItem(trophyItem.item, trophyItem.slot, 'tracks.goals.every_completion')
 
   for (const track of ['streak', 'goals'] as const) {
     const milestones = new Set(rules.tracks[track].milestones)
@@ -101,6 +134,12 @@ export function crossValidateCatalog(rulesFile: string, rules: Rules, roomFiles:
   }
 
   for (const { file, room } of roomFiles) {
+    for (const id of Object.keys(room.assets)) {
+      if (Object.hasOwn(shared.items, id)) err(file, `assets.${id}`, `is already defined in items.json`)
+    }
+  }
+
+  for (const { file, room } of roomFiles) {
     const byNumber = new Map<number, number>()
     const roomItems = new Set(room.signature.map((s) => s.item))
     const itemFirstUse = new Map<string, number>()
@@ -122,7 +161,7 @@ export function crossValidateCatalog(rulesFile: string, rules: Rules, roomFiles:
         )
       }
 
-      const asset = room.assets[step.item]
+      const asset = room.assets[step.item] ?? shared.items[step.item]
       if (asset === undefined) err(file, `${field}.item`, `"${step.item}" has no entry under "assets"`)
 
       step.slots.forEach((slotName, j) => {
@@ -135,6 +174,9 @@ export function crossValidateCatalog(rulesFile: string, rules: Rules, roomFiles:
         if (asset === undefined) return
         if (asset.layer !== slot.layer) {
           err(file, slotField, `"${step.item}" is a ${asset.layer} but slot "${slotName}" holds a ${slot.layer}`)
+        }
+        if (asset.slots !== undefined && !asset.slots.includes(slot.kind)) {
+          err(file, slotField, `"${step.item}" may not stand in a "${slot.kind}" slot like "${slotName}"`)
         }
         const a = asset.footprint
         const s = slot.footprint
@@ -164,5 +206,37 @@ export function crossValidateCatalog(rulesFile: string, rules: Rules, roomFiles:
     }
   }
 
-  return { errors, warnings }
+  return { errors, warnings, items: itemRegistry(rules, roomFiles, shared) }
+}
+
+/** items.json plus every room's assets; a room asset without `slots` takes the kinds of the slots it is placed in. */
+function itemRegistry(rules: Rules, roomFiles: RoomFile[], shared: SharedItems): Record<string, ItemDef> {
+  const registry: Record<string, ItemDef> = {}
+  for (const [id, def] of Object.entries(shared.items)) {
+    registry[id] = { id, layer: def.layer, footprint: def.footprint, width: def.width, height: def.height, slots: def.slots, variants: def.variants, mirrorable: def.mirrorable }
+  }
+  for (const { room } of roomFiles) {
+    for (const [id, asset] of Object.entries(room.assets)) {
+      if (registry[id]) continue
+      const kinds = new Set<SlotKind>()
+      for (const step of room.signature) {
+        if (step.item !== id) continue
+        for (const slotName of step.slots) {
+          const kind = rules.layout.slots[slotName]?.kind
+          if (kind) kinds.add(kind)
+        }
+      }
+      registry[id] = {
+        id,
+        layer: asset.layer,
+        footprint: asset.footprint,
+        width: asset.width,
+        height: asset.height,
+        slots: asset.slots ?? [...kinds],
+        variants: asset.variants,
+        mirrorable: asset.mirrorable
+      }
+    }
+  }
+  return registry
 }

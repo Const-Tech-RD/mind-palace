@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AGENT_LABEL, roomAgents, type RoomAgent } from '@shared/agents'
-import { activeToday, currentRoomOf, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
+import { activeToday, currentRoomOf, decayText, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
 import { useStore } from '../store'
 import { ActivityStrip } from './ActivityStrip'
-import { iso, PAINTED_WALL } from '@shared/floor'
-import { CHAT_DRAG_TYPE, PalaceCanvas, type CanvasCamera } from './PalaceCanvas'
+import { iso } from '@shared/floor'
+import { CHAT_DRAG_TYPE, PalaceCanvas, type CanvasCamera, type CanvasLabel } from './PalaceCanvas'
 import { HOTSPOT_ACTION, ROOM_HOTSPOTS, type Hotspot } from './roomHotspots'
 import { RoomPanel } from './RoomPanel'
-import { ROOM_IMAGE } from './roomArt'
+import { PalaceGuide, usePalaceGuide } from './PalaceGuide'
+import { PalaceList, RoomSummary } from './PalaceList'
+import { InventoryDrawer } from './InventoryDrawer'
+import { ROOM_CUT, ROOM_IMAGE } from './roomArt'
 
 const MAX_TROPHIES = 5
+/** How long Nato gets to walk towards a thing before it opens. */
+const WALK_TO_THING_MS = 450
 
 function Trophy({ earned }: { earned: boolean }) {
   return (
@@ -159,11 +164,54 @@ export function PalaceView() {
   const startChatIn = useStore((s) => s.startChatIn)
   const showProjects = useStore((s) => s.showProjects)
   const moveChat = useStore((s) => s.moveChat)
+  const projectAction = useStore((s) => s.projectAction)
+  const [labels, setLabels] = useState<CanvasLabel[]>([])
   const [camera, setCamera] = useState<CanvasCamera | null>(null)
   /** The thing that was clicked and whose card is open; `roomId` null is the palace-wide reminders card. */
   const [panel, setPanel] = useState<{ roomId: string | null; hotspot: Hotspot } | null>(null)
   const closePanel = useCallback(() => setPanel(null), [])
+  const guide = usePalaceGuide()
+  const [walkTo, setWalkTo] = useState<{ x: number; y: number; n: number } | null>(null)
+  const walkTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(walkTimer.current), [])
   const dropChat = useCallback((toRoom: string, chatId: string) => void moveChat(chatId, toRoom), [moveChat])
+  const refreshPalace = useStore((s) => s.refreshPalace)
+  const [hovered, setHovered] = useState<string | null>(null)
+  const place = useStore((s) => s.place)
+  const resetPlacement = useStore((s) => s.resetPlacement)
+  // Room editor: open while a room is in view; `selected` is the item being moved.
+  const [editing, setEditing] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  useEffect(() => {
+    setEditing(false)
+    setSelected(null)
+    setPanel(null)
+    setWalkTo(null)
+    window.clearTimeout(walkTimer.current)
+  }, [roomId])
+  // Map or plain list, remembered per viewer; reduced motion starts on the list until someone chooses.
+  const [mode, setMode] = useState<'scene' | 'list'>(() => {
+    try {
+      const saved = localStorage.getItem('palace.mode')
+      if (saved === 'scene' || saved === 'list') return saved
+    } catch {
+      // Storage can be unavailable; fall through to the default.
+    }
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'list' : 'scene'
+  })
+  const chooseMode = (next: 'scene' | 'list'): void => {
+    setMode(next)
+    try {
+      localStorage.setItem('palace.mode', next)
+    } catch {
+      // Not remembered; it still switches.
+    }
+  }
+  const projectTitle = (id: string | null): string | null => (id ? (projects.find((p) => p.id === id)?.title ?? null) : null)
+  // The focused room's back walls rise and show what hangs on them: ask for the floor with that focus.
+  useEffect(() => {
+    void refreshPalace()
+  }, [roomId, refreshPalace])
 
   const room = palace?.rooms.find((r) => r.id === roomId) ?? null
   const roomIds = useMemo(() => palace?.rooms.map((r) => r.id) ?? [], [palace])
@@ -176,29 +224,38 @@ export function PalaceView() {
   const activeProjects = projects.filter((p) => p.state === 'active').length
   const pick = useCallback((id: string) => void showPalace(id), [showPalace])
 
-  // A card belongs to the view it was opened in.
-  useEffect(() => setPanel(null), [roomId])
-
-  /** Where a point of the floor (logical pixels) is on the stage right now. */
-  const onStage = (x: number, y: number): { left: number; top: number } =>
-    camera ? { left: x * camera.scale + camera.x, top: y * camera.scale + camera.y } : { left: -9999, top: -9999 }
-  const labels = (palace?.floor.rooms ?? []).map((r) => {
-    const at = iso(r.origin[0], r.origin[1], PAINTED_WALL - 0.6)
-    const spot = onStage(at.x, at.y)
-    return { id: r.id, left: spot.left, top: Math.max(34, spot.top) }
-  })
+  /**
+   * A room has two looks: its painting, and its pieces. The pieces show while
+   * the room is being arranged, and always for a room that has no painting.
+   */
+  const painted = room !== null && !editing && ROOM_CUT[room.id] !== undefined
+  // The things in a painted room that can be clicked, pinned over the floor.
   const floorRoom = palace?.floor.rooms.find((r) => r.id === room?.id)
-  const hotspots = room && floorRoom
-    ? (ROOM_HOTSPOTS[room.id] ?? []).map((hotspot) => {
-        const origin = iso(floorRoom.origin[0], floorRoom.origin[1])
-        return { hotspot, ...onStage(origin.x + hotspot.at[0], origin.y + hotspot.at[1]) }
-      })
-    : []
+  const hotspots =
+    painted && room && floorRoom && camera
+      ? (ROOM_HOTSPOTS[room.id] ?? []).map((hotspot) => {
+          const origin = iso(floorRoom.origin[0], floorRoom.origin[1])
+          return { hotspot, left: (origin.x + hotspot.at[0]) * camera.scale + camera.x, top: (origin.y + hotspot.at[1]) * camera.scale + camera.y }
+        })
+      : []
   const openHotspot = (hotspot: Hotspot): void => {
     if (!room) return
-    if (hotspot.kind === 'chat') startChatIn(room.id)
-    else if (hotspot.kind === 'exit') void showPalace(null)
-    else setPanel(panel?.hotspot.id === hotspot.id ? null : { roomId: room.id, hotspot })
+    if (panel?.hotspot.id === hotspot.id) {
+      setPanel(null)
+      return
+    }
+    // Nato walks over to the thing first; what it does happens when he is on his way there.
+    const roomIdNow = room.id
+    setWalkTo((prev) => ({ x: hotspot.at[0], y: hotspot.at[1], n: (prev?.n ?? 0) + 1 }))
+    window.clearTimeout(walkTimer.current)
+    walkTimer.current = window.setTimeout(
+      () => {
+        if (hotspot.kind === 'chat') startChatIn(roomIdNow)
+        else if (hotspot.kind === 'exit') void showPalace(null)
+        else setPanel({ roomId: roomIdNow, hotspot })
+      },
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : WALK_TO_THING_MS
+    )
   }
   const REMINDERS_CARD: Hotspot = { id: 'palace-reminders', kind: 'reminders', thing: 'The whole palace', at: [0, 0] }
 
@@ -219,7 +276,8 @@ export function PalaceView() {
   }, [room?.id, showPalace]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fresh = useMemo(() => new Set(room?.newItems ?? []), [room])
-  const furniture = room?.state.items.filter((item) => item.source !== 'trophy') ?? []
+  // What stands in the room as the user arranged it (hidden and replaced things are in the inventory).
+  const furniture = room?.placed.filter((item) => item.source !== 'trophy') ?? []
   const hasShelf = room?.state.items.some((item) => item.item === 'trophy_shelf') ?? false
   const news = room
     ? [
@@ -274,6 +332,51 @@ export function PalaceView() {
             )
           })}
         </nav>
+        {!room && palace && (
+          <div className="ml-auto flex shrink-0 gap-1.5" data-testid="palace-shortcuts">
+          <button
+            type="button"
+            onClick={guide.show}
+            aria-label="How the palace works"
+            title="How the palace works"
+            className="flex size-7 items-center justify-center self-center rounded-full border border-brass/50 text-xs font-bold text-muted hover:bg-raised hover:text-paper"
+          >
+            ?
+          </button>
+          <button
+            type="button"
+            onClick={() => void selectChat(null)}
+            className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-ink shadow hover:bg-brass-light"
+          >
+            New chat
+          </button>
+          <button
+            type="button"
+            onClick={() => chooseMode(mode === 'scene' ? 'list' : 'scene')}
+            aria-pressed={mode === 'list'}
+            className="rounded-full border border-brass/50 bg-walnut/90 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
+          >
+            {mode === 'scene' ? 'List view' : 'Map view'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPanel(panel?.hotspot.id === REMINDERS_CARD.id ? null : { roomId: null, hotspot: REMINDERS_CARD })}
+            aria-expanded={panel?.hotspot.id === REMINDERS_CARD.id}
+            className={`rounded-full border px-3 py-1.5 text-xs shadow backdrop-blur ${
+              reminders > 0 ? 'reminder-waiting border-gold bg-walnut/85 text-gold hover:bg-raised' : 'border-brass/50 bg-walnut/85 text-paper hover:bg-raised'
+            }`}
+          >
+            {reminders} reminder{reminders === 1 ? '' : 's'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void showProjects()}
+            className="rounded-full border border-brass/50 bg-walnut/85 px-3 py-1.5 text-xs text-paper shadow backdrop-blur hover:bg-raised"
+          >
+            {activeProjects} active project{activeProjects === 1 ? '' : 's'}
+          </button>
+        </div>
+        )}
       </header>
       <div className="@container min-h-0 flex-1 overflow-y-auto">
         {appError && (
@@ -291,16 +394,84 @@ export function PalaceView() {
                   New in this room: {news.join(', ')}.
                 </p>
               )}
+              {room && room.decay.level > 0 && room.decay.projectId && (
+                <div key="dust" data-testid="room-dust" className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brass/40 bg-ink-soft px-4 py-2 text-sm">
+                  <p className="min-w-0 flex-1">
+                    <span className="font-semibold">This room is gathering dust.</span>{' '}
+                    <span className="text-muted">
+                      “{projectTitle(room.decay.projectId) ?? 'A project'}” has been quiet for {room.decay.weekdaysQuiet} weekdays. Work on it, or put it away, and
+                      the light comes back.
+                    </span>
+                  </p>
+                  {(() => {
+                    const project = projects.find((p) => p.id === room.decay.projectId)
+                    const chatId = project?.chatIds[0]
+                    return (
+                      <>
+                        {chatId && (
+                          <button type="button" onClick={() => void selectChat(chatId)} className="rounded-full bg-gold px-3 py-1 text-xs font-semibold text-ink hover:bg-brass-light">
+                            Open it
+                          </button>
+                        )}
+                        {(['pause', 'done', 'drop'] as const).map((action) => (
+                          <button
+                            key={action}
+                            type="button"
+                            onClick={() => void projectAction(room.decay.projectId!, action)}
+                            className="rounded-full border border-brass/50 px-3 py-1 text-xs hover:bg-raised"
+                          >
+                            {action === 'pause' ? 'Pause' : action === 'done' ? 'Done' : 'Drop'}
+                          </button>
+                        ))}
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
               <figure
                 key="stage"
-                className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-brass/35 bg-[#1e1612]"
+                className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-brass/35 bg-ink"
                 data-testid="palace-stage"
                 data-room={room?.id ?? ''}
               >
-                <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick} onCamera={setCamera} onDropChat={dropChat} />
+                {mode === 'list' && !room ? (
+                  <div className="absolute inset-0 overflow-y-auto pt-12">
+                    <PalaceList rooms={palace.rooms} projectTitle={projectTitle} onOpen={(id) => void showPalace(id)} />
+                  </div>
+                ) : (
+                  <PalaceCanvas floor={palace.floor} focus={room?.id ?? null} natoRoom={natoRoom} agents={agents} onPick={pick}
+                    onLabels={setLabels}
+                    onHover={setHovered}
+                    arranging={editing && room ? room.id : null}
+                    onCamera={setCamera}
+                    walkTo={walkTo}
+                    onDropChat={dropChat}
+                    highlights={editing && selected && room ? (room.editor.targets[selected] ?? []) : undefined}
+                    onSlot={(slot) => {
+                      if (!room || !selected) return
+                      void place({ roomId: room.id, instance: selected, slot })
+                      setSelected(null)
+                    }}
+                  />
+                )}
 
                 {/* Room names float over the floor; they are also the keyboard way into a room. */}
+                {!room && mode === 'scene' && hovered && (() => {
+                  const r = palace.rooms.find((x) => x.id === hovered)
+                  const label = labels.find((l) => l.id === hovered)
+                  if (!r || !label) return null
+                  return (
+                    <div
+                      role="tooltip"
+                      className="pointer-events-none absolute z-10 w-64 -translate-x-1/2 rounded-lg border border-brass/50 bg-walnut/95 px-3 py-2 shadow-lg"
+                      style={{ left: label.left, top: label.top + 8 }}
+                    >
+                      <RoomSummary room={r} decay={decayText(r.decay, projectTitle(r.decay.projectId))} roomIds={roomIds} />
+                    </div>
+                  )
+                })()}
                 {!room &&
+                  mode === 'scene' &&
                   labels.map((label) => {
                     const r = palace.rooms.find((x) => x.id === label.id)
                     if (!r) return null
@@ -308,6 +479,7 @@ export function PalaceView() {
                     const count = projects.filter((p) => p.roomId === r.id && p.state === 'active').length
                     const isNew = !seenRooms.includes(r.id) && (r.newItems.length > 0 || r.newShell !== null)
                     const today = activeToday(r.state)
+                    const onWalls = palace.floor.rooms.find((x) => x.id === r.id)?.hiddenWallItems ?? 0
                     return (
                       <button
                         key={r.id}
@@ -331,42 +503,23 @@ export function PalaceView() {
                         >
                           <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: r.accent }} />
                           <span className="font-semibold">{r.name}</span>
+                          {onWalls > 0 && (
+                            <span className="text-[10px] text-muted" title="On a low wall: shown when you open the room">
+                              +{onWalls} on the walls
+                            </span>
+                          )}
                           {r.state.streak.current > 0 && <span className="text-muted">{r.state.streak.current}d</span>}
                           {count > 0 && <span className="text-muted">· {count} project{count === 1 ? '' : 's'}</span>}
+                          {r.decay.level > 0 && (
+                            <span className="rounded-full bg-paper/15 px-1.5 text-[10px] text-muted" title={decayText(r.decay, projectTitle(r.decay.projectId)) ?? undefined}>
+                              dusty
+                            </span>
+                          )}
                           {isNew && <span className="palace-new rounded-full bg-gold px-1.5 text-[10px] font-semibold text-ink">New</span>}
                         </span>
                       </button>
                     )
                   })}
-
-                {!room && (
-                  <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => void selectChat(null)}
-                      className="rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-ink shadow hover:bg-brass-light"
-                    >
-                      New chat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPanel(panel?.hotspot.id === REMINDERS_CARD.id ? null : { roomId: null, hotspot: REMINDERS_CARD })}
-                      aria-expanded={panel?.hotspot.id === REMINDERS_CARD.id}
-                      className={`rounded-full border px-3 py-1.5 text-xs shadow backdrop-blur ${
-                        reminders > 0 ? 'reminder-waiting border-gold bg-walnut/85 text-gold hover:bg-raised' : 'border-brass/50 bg-walnut/85 text-paper hover:bg-raised'
-                      }`}
-                    >
-                      {reminders} reminder{reminders === 1 ? '' : 's'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void showProjects()}
-                      className="rounded-full border border-brass/50 bg-walnut/85 px-3 py-1.5 text-xs text-paper shadow backdrop-blur hover:bg-raised"
-                    >
-                      {activeProjects} active project{activeProjects === 1 ? '' : 's'}
-                    </button>
-                  </div>
-                )}
 
                 {room && (
                   <>
@@ -421,30 +574,29 @@ export function PalaceView() {
                     )}
                   </>
                 )}
-                {/* The things in the room that can be clicked. */}
-                {room &&
-                  hotspots.map(({ hotspot, left, top }) => {
-                    const open = panel?.hotspot.id === hotspot.id
-                    const waiting = hotspot.kind === 'reminders' && reminders > 0
-                    return (
-                      <button
-                        key={hotspot.id}
-                        type="button"
-                        onClick={() => openHotspot(hotspot)}
-                        aria-label={`${hotspot.thing}: ${HOTSPOT_ACTION[hotspot.kind]}`}
-                        aria-expanded={hotspot.kind === 'chat' || hotspot.kind === 'exit' ? undefined : open}
-                        data-hotspot={hotspot.kind}
-                        className={`hotspot group absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center ${open ? 'open' : ''} ${waiting ? 'waiting' : ''}`}
-                        style={{ left, top }}
-                      >
-                        <span className="hotspot-dot block size-4 rounded-full border-2 border-paper shadow" style={{ backgroundColor: waiting ? '#e8b84a' : room.accent }} />
-                        <span className="hotspot-tip pointer-events-none absolute top-1/2 left-full ml-1.5 -translate-y-1/2 rounded-full border border-brass/60 bg-walnut/95 px-2 py-0.5 text-[11px] whitespace-nowrap text-paper shadow">
-                          {HOTSPOT_ACTION[hotspot.kind]}
-                          {hotspot.kind === 'reminders' && reminders > 0 ? ` · ${reminders}` : ''}
-                        </span>
-                      </button>
-                    )
-                  })}
+                {/* The things in a painted room that can be clicked. */}
+                {hotspots.map(({ hotspot, left, top }) => {
+                  const open = panel?.hotspot.id === hotspot.id
+                  const waiting = hotspot.kind === 'reminders' && reminders > 0
+                  return (
+                    <button
+                      key={hotspot.id}
+                      type="button"
+                      onClick={() => openHotspot(hotspot)}
+                      aria-label={`${hotspot.thing}: ${HOTSPOT_ACTION[hotspot.kind]}`}
+                      aria-expanded={hotspot.kind === 'chat' || hotspot.kind === 'exit' ? undefined : open}
+                      data-hotspot={hotspot.kind}
+                      className={`hotspot group absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center ${open ? 'open' : ''} ${waiting ? 'waiting' : ''}`}
+                      style={{ left, top }}
+                    >
+                      <span className={`hotspot-dot block size-4 rounded-full border-2 border-paper shadow ${waiting ? 'bg-gold' : ''}`} style={waiting ? undefined : { backgroundColor: room?.accent }} />
+                      <span className="hotspot-tip pointer-events-none absolute top-1/2 left-full ml-1.5 -translate-y-1/2 rounded-full border border-brass/60 bg-walnut/95 px-2 py-0.5 text-[11px] whitespace-nowrap text-paper shadow">
+                        {HOTSPOT_ACTION[hotspot.kind]}
+                        {hotspot.kind === 'reminders' && reminders > 0 ? ` · ${reminders}` : ''}
+                      </span>
+                    </button>
+                  )
+                })}
 
                 {panel &&
                   (() => {
@@ -461,18 +613,40 @@ export function PalaceView() {
                     )
                   })()}
 
+                {guide.open && <PalaceGuide onClose={guide.close} />}
+
                 <span className="sr-only" role="img" aria-label={natoRoomName ? `Nato, in the ${natoRoomName}` : 'Nato, in the lobby'} />
               </figure>
 
-              {room ? (
+              {room && editing ? (
+                <div key="editor" className="mt-5">
+                  <InventoryDrawer
+                    room={room}
+                    roomIds={roomIds}
+                    selected={selected}
+                    onSelect={setSelected}
+                    onPlace={(instance, slot) => {
+                      void place({ roomId: room.id, instance, slot, hidden: false })
+                      setSelected(null)
+                    }}
+                    onVariant={(instance, variant) => void place({ roomId: room.id, instance, variant })}
+                    onHide={(instance, hidden) => void place({ roomId: room.id, instance, hidden })}
+                    onReset={(instance) => void resetPlacement(room.id, instance)}
+                    onDone={() => {
+                      setEditing(false)
+                      setSelected(null)
+                    }}
+                  />
+                </div>
+              ) : room ? (
                 <section key="furniture" className="mt-5">
                   <h3 className="text-xs font-medium tracking-wide text-muted uppercase">In this room</h3>
                   <ul className="mt-2 flex flex-wrap gap-2" data-testid="room-furniture">
                     {furniture.map((item) => {
-                      const isNew = fresh.has(itemKey(item))
+                      const isNew = fresh.has(item.instance)
                       return (
                         <li
-                          key={itemKey(item)}
+                          key={item.instance}
                           className={`rounded-full px-3 py-1 text-sm ${isNew ? 'palace-new bg-gold font-medium text-ink' : 'bg-raised text-paper'}`}
                         >
                           {itemLabel(item.item, roomIds)}
@@ -481,7 +655,20 @@ export function PalaceView() {
                       )
                     })}
                   </ul>
-                  <p className="mt-3 text-xs text-muted">The room is shown as its painting. It starts grey and gains its colour as the streak grows.</p>
+                  <p className="mt-3 text-xs text-muted">
+                    The room is shown as its painting, which gains its colour as the streak grows. Arrange room shows it as its pieces, plain blocks
+                    until their drawings exist, so you can move them.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPanel(null)
+                      setEditing(true)
+                    }}
+                    className="mt-3 rounded-full border border-brass/50 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
+                  >
+                    Arrange room{room.inventory.length > 0 ? ` · ${room.inventory.length} in the inventory` : ''}
+                  </button>
                 </section>
               ) : (
                 <p key="where" className="mt-4 text-center text-sm text-muted" role="status">

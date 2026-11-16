@@ -54,7 +54,7 @@ The plan's "Core logic" wins in every case.
    `art_pottery_wheel` are 1 x 1 but sit in `floor_right`, which is 2 x 1.
    Warning only; the renderer has to decide where in the slot they stand.
 
-8. **Base and shared items are not declared anywhere in the catalog.**
+8. ~~**Base and shared items are not declared anywhere in the catalog.**~~ Closed in phase 4: `catalog/items.json` declares them, and every slot has a `kind`.
    `base_*`, `trophy`, `trophy_shelf` and `window` appear in `rules.json` by
    name only; their layer, footprint and height exist only in the asset spec's
    tables. Signature items are checked against the slot's layer; these cannot
@@ -452,3 +452,110 @@ PR #2 (Claudio's review fixes) went into main first; this branch was then merged
 - `PalaceCanvas` now reports its camera (`onCamera`), and the view pins labels, dots and cards over the floor itself.
 
 Verified: typecheck, unit tests, E2E S5 9/9 with new cases V8 (click the jacket, Esc, click the desk) and V9 (reminders card on the map; drag a chat onto a room's tab). Not verified: dropping a chat on a room on the canvas itself (the test drops on the tab); the reminders card with real reminders in it. The full E2E run afterwards passed 38 of 38 with L3 skipped. The dots were looked at in all four rooms and sit on their things.
+
+## Review fixes from plan v2's handoff (2026-11-15)
+
+From `docs/HANDOFF.md`, "Fixes found in review". Windows 11 dev machine.
+
+- **Sign-in command.** Already right: `Login.tsx` shows `claude auth login --claudeai` and E2E L1 checks for it. Only these notes were stale.
+- **Environment.** Supersedes `src/shared/sdkEnv.ts` from the first pass above (removed when the branches were merged): the handoff asks for an explicit allow-list, and API-key sign-in is left for the later "switch to an API key" config change. `src/main/chat/env.ts` builds the SDK child's environment from an allow-list (paths, home, locale, Windows basics, proxies, `CLAUDE_CONFIG_DIR`). The SDK's `env` replaces the child environment, so nothing else gets through. A Claude Code shell on this machine carried `ANTHROPIC_BASE_URL` and about 30 `CLAUDE_CODE_*` variables; with the fix the SDK starts with `apiKeySource: none` (the user's own OAuth login). The login check no longer accepts a token in the environment, since it is never passed on. E2E L1 now fakes a refused login with a throwaway `CLAUDE_CONFIG_DIR` (not run yet, see below).
+- **`counted`.** Dropped (migration 0002). Done stores every completion; the engine counts one per room per local day, as it already did.
+- **Local day.** `messages.local_day` (migration 0003) is stamped in the settings timezone at write time and preferred by the engine. At launch, older rows are stamped once with the current zone. Checked on a database rolled back to migration 0001: both migrations apply, a completion row survives, a 03:30Z message gets 2026-11-02 in Santo Domingo.
+- **Windows.** 11 catalog tests failed on `\` path separators; they now normalise to `/`. `npm install` did not download the Electron binary here (`Error: Electron uninstall` on `npm run dev`); `node node_modules/electron/install.js` fixed it.
+
+### The 38k tokens per turn are web search results, not the prompt
+
+Measured with SDK 0.3.325, Sonnet 5.5, the app's exact options, per API call:
+
+| Turn | Calls | Input per call | Notes |
+| --- | --- | --- | --- |
+| "Reply with ok" (no search) | 1 | 1,664 (all cache creation) | System prompt + the one tool + the CLI's base. |
+| One factual question (2 searches) | 6 | ~1.7k, then ~38.5k | Each search's results add ~36,800 tokens, re-read on every later call. |
+
+So the SDK's own prompt and tool list are already about 1.7k; trimming them saves almost nothing. The cost is the search result payload, and the stored `tokens_in` (input + cache read + cache creation, summed over calls) shows a two-search turn as ~78k. Not changed yet: what to do about it is an open decision (fewer searches per answer, a fetch-based tool with smaller pages, or showing cache reads separately in the ledger).
+
+E2E on Windows: `node tests/e2e/run.mjs --only S3` passes L1 with the new fake login. L2 fails only because the harness calls the `sqlite3` CLI (not installed here), and the report step then crashes on macOS's `sw_vers`: the E2E harness is macOS-only for now. S1, S2, S4 and S5 were not run, so P6's new completion check is unverified.
+
+
+## Phase 4 · Connected palace, on top of the first pass (2026-11-15)
+
+Built on Nato's first pass (`af75504`) with the review fixes merged; plan in `docs/superpowers/plans/2026-11-15-phase4-connected-palace.md`. Claudio chose to keep plan v2's rules, so two departures of the first pass are undone:
+
+- **Rooms are never drawn from the paintings.** `ROOM_CUT` and `assets/rooms/cut/` are gone; every item is a placeholder block (faces 100/82/62 %) until its sprite exists. The paintings stay as the header picture beside a room. `scripts/cut_rooms.py` is kept, but its output is no longer used by the app.
+- **Hallways are 2 tiles** (palace 18 x 18). Walls that face a hallway are low, so none hides a room behind it.
+
+What exists:
+
+- **Theme tokens for the canvas.** Every colour is a `--mp-*` CSS variable (`styles.css`), read by `src/renderer/src/theme.ts`; a test fails on any `#rrggbb` / `0xrrggbb` in `src/renderer`. The CSS build writes `#000` for `#000000`; the parser accepts both.
+- **Decay** (`RoomState.decay`): weekdays since the quietest active project's last activity; levels at 7/14/21/30. Drawn as dust, cobwebs, a grey-and-dim filter on the room's own layer, a flicker every 20-60 s at level 3, and a 600 ms "lights back on" when the level drops. Reduced motion turns off flicker and fades.
+- **`catalog/items.json`** declares the base and shared items (closes NOTES 8); every slot in `rules.json` has a `kind`. `cardboard_box` moved there from the Mail room's assets.
+- **Placements** (`placements` table, migration 0004; `src/shared/placements.ts`): a row moves an item, picks a variant or hides it, and always wins. Items without a row go to their catalog slot when it is free; otherwise they wait in the inventory with a reason. The desk and the trophy shelf can be hidden or re-skinned, not moved.
+- **Low walls.** In the whole-palace view, items on a low wall are not drawn; the label says "+N on the walls". With a room focused, its back walls rise to full height and show them.
+- **Room editor.** In a focused room, Arrange room: choose Move, then a spot from the list or an outlined spot on the floor; Hide/Show, variant, Reset.
+- **Tooltips and a plain list view** (List view button; remembered per viewer; reduced motion starts on the list).
+- **`npm run shots`** (`scripts/palace-shots.mjs`): seeds fixture databases with Node's built-in SQLite and screenshots the real app into `test-report/palace/`. `node scripts/palace-shots.mjs editor` drives the editor through the UI and a restart and checks the result.
+
+Verified on Windows 11: typecheck; 328 unit tests; `npm run shots` (empty, furnished, decay, hover, list, focused rooms) looked at; the editor run passes 4/4 (a moved chair and a re-placed crate survive a restart; a new unlock lands on the desk with nothing else moved).
+
+Not verified:
+
+- Flicker and "lights back on" in motion (only still frames); reduced motion by hand; a screen reader on the list view.
+- `tests/e2e/run.mjs` was not run after these changes (it needs macOS for its report and the `sqlite3` CLI); some of its palace selectors (V1-V7, e.g. "Finished room" captions) may need updating.
+- Wheel zoom and drag-to-pan were not tried by hand after the camera change.
+- Variants: no item has variants yet, so the picker has not been seen.
+
+## Two looks for a room: merging phase 4 with the painted rooms (2026-11-16)
+
+Claudio's phase 4 (PR #4) put the palace back on plan v2's rules: no paintings in the palace, 2-tile hallways, everything a placeholder block. Nato wanted his paintings as the rooms. The owner's decision was to keep both, as two looks of the same room:
+
+- **Painting, day to day.** On the map and when a room is opened, a room that has a painting (`ROOM_CUT`) is drawn as it. Its shell tier is a colour filter on the painting, phase 4's decay filter, dust and cobwebs apply on top, and the clickable things of stage 3 sit on it.
+- **Pieces, while arranging.** "Arrange room" passes the room to the canvas as `arranging`; that room is then drawn from its pieces exactly as in phase 4 (blocks, low walls rising, slot outlines, the inventory drawer), and the clickable things are hidden. A room without a painting is always drawn this way.
+- **Hallways are 5 tiles again** (`HALL_TILES`), because the painted walls are about 4.8 units tall. Phase 4's low-wall logic is unchanged; the floor tests are updated for the 21 x 21 palace.
+- `boxOfRoom` takes an optional wall height so the camera frames a painted room; the canvas keeps phase 4's `onLabels`, `onHover`, `highlights` and `onSlot`, and adds `arranging`, `onCamera` and `onDropChat`.
+- `assets/rooms/cut/` and `ROOM_CUT` in `roomArt.ts`, removed by phase 4, are back.
+
+What this costs: a room has two appearances, and what you arrange in the piece view is not visible in the painting. In a painted room the items on low walls that phase 4 hides on the map are not drawn at all; the "+N on the walls" note on the label still counts them.
+
+## Painted rooms: no distortion, sharper (2026-11-16)
+
+Nato reported the rooms looked bent and pixelated. Two causes, both mine:
+
+- **Bent.** `cut_rooms.py` mapped three floor corners of each painting onto the grid's room diamond with an affine transform, which squashed the painting vertically and skewed it. It now only scales: the painting keeps its proportions, sized so its floor is as wide as the room diamond. The painted floor is a little deeper than the grid's, and its corners are not exactly the grid's; `ROOM_CUT[...].floor` and `.top` carry the real ones, used for the hover outline, the camera frame and the label height.
+- **Pixelated.** The cut-outs were exported at 2x logical, below the paintings' own resolution, and PixiJS filters draw at resolution 1 unless told otherwise, so the shell and decay filters blurred everything on a dense display. Cut-outs are now 3x (about the paintings' resolution), the filters use `resolution = 'inherit'`, and the textures have mipmaps for the small map view.
+- Undistorted walls are taller (up to 202 logical px), so **hallways are 7 tiles** and the palace 23 x 23. The test that pins the hallway width to the wall height still holds.
+- The spots for Nato, the helpers and the clickable things were converted to the new cut-outs by composing the old and new transforms, then checked on screenshots.
+
+Verified: typecheck, 334 unit tests, E2E S5 9/9, the editor check 4/4, screenshots of the map and a room on a 2x display. Not verified on a 1x display.
+
+## The spaces between the rooms (2026-11-16)
+
+Nato asked for the places the avatar walks to be designed, and for a tidier map.
+
+- **Walkways** (`walkways()` and `wayOut()` in `floor.ts`, pure and tested): boarded hallways with a brass edge; a carpet down the middle of each, reaching as far as the outermost room entrance; a mat in each room's colour from its hallway side to the carpet; a plaza with a round rug and four lanterns where the hallways cross. They are drawn along the same points the character's route uses, so he walks on them. Colours are new `--mp-walk-*` tokens.
+- **The lobby is visible.** On the map the front room (Mail room) stands in front of the lobby. Its painting is now drawn with the top of its back corner dissolved away (`loadOpenedTexture`), so the plaza and its centrepiece show through. The room is drawn whole as soon as it is opened. Its label moved onto its left wall.
+- **The map's buttons** (New chat, List view, reminders, active projects) moved from over the map to the Palace header, where they no longer cover the Coding room's label.
+
+Verified: typecheck, 338 unit tests (4 new for the walkways), E2E S5 9/9, the editor check 4/4, a screenshot of the map. Not verified: S1 to S4 after this change; how the opened corner looks while the Mail room is in decay.
+
+## Five of seven polish items (2026-11-16)
+
+Nato asked for seven improvements one by one. Items 1 (painted walkways) and 7 (a painted surround) need new art from Gemini and are not done: neither Chrome window connected at the time was the profile used for generation.
+
+- **2. Dim rooms.** A painted room takes 55% of decay's grey and darkness (`PAINTED_DECAY`), so it still reads as that room. A decayed room shows a note above it naming the quiet project and for how long, with Open it, Pause, Done and Drop; its label on the map says "dusty". The block view keeps phase 4's full decay.
+- **3. Walls cover Nato.** He is no longer drawn over everything. Each frame he is placed among the room layers: after the room he is in, or just before the first room whose back walls he is behind. The paintings' front sides are open (they are cutaways), and the Mail room's painted door is where its mat arrives, so no doorway had to be painted.
+- **4. Mail room corner.** The soft dissolve is replaced by a clean notch cut down the two walls towards the corner, with an outlined edge, like a section drawing (`NOTCH`).
+- **5. Nato walks to what is clicked.** Clicking a thing in a room sends him to the nearest floor spot in front of it (`walkTo`), and the thing opens 450 ms later (at once with reduced motion). He waits there a while before strolling again.
+- **6. First-run tour.** Four short tips in a corner card the first time the palace is opened (`PalaceGuide.tsx`), kept in localStorage, reopened with the "?" button in the header. It blocks nothing; Esc or Skip closes it. The E2E and screenshot scripts skip it; V7 checks it returns after the store is cleared.
+
+Verified: typecheck, 338 unit tests, full E2E 38 of 38 with L3 skipped, the editor check 4/4, screenshots of a dusty room and of the tour. Not verified: Nato being covered by a wall and walking to a clicked thing, as motion (stills only).
+
+## Painted walkways and surround (2026-11-16)
+
+Items 1 and 7 of the polish list, with art from one Gemini chat.
+
+- **Flat pictures laid on the floor.** The floor boards, the carpet and the round rug are painted as seen from straight above. `onFloor()` in `PalaceCanvas.tsx` is the matrix that lays such a picture onto the isometric floor, so one picture serves any hallway, in either direction. Boards and carpet are `TilingSprite`s; `scripts/cut_ground.py` mirrors each tile beside itself so it repeats without a seam.
+- **Walkways**: boards on both hallways (tinted darker by `--mp-walk-tint`) and untinted on the plaza, the carpet along the route, a mat tinted with each room's colour, the rug in the lobby, and four lantern sprites. The brass edges are still drawn lines. The ground is built once per layout (`buildGround`), not on every redraw.
+- **Surround**: a painted library fills the stage around the palace (`ground/surround.jpg`), in the same style as the original paintings' backgrounds.
+- Gemini's "full size" download of the carpet and the lantern came back as different pictures from the previews (a room painted behind the carpet, ground under the lantern). Those two are captures of the correct previews, so they are lower resolution (carpet band 128 px tall, lantern 239 px tall). The others are the full-size downloads.
+
+Verified: typecheck, 338 unit tests, E2E S5 9/9, the editor check 4/4, a screenshot of the map. Not verified: S1 to S4 after this change; the look on a 1x display; how the surround reads when a room is opened (the capture was disturbed).
