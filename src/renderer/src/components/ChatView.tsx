@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { accentCss } from '../theme'
-import Markdown from 'react-markdown'
+import { Answer } from './Answer'
 import { splitSources, type ChatMessage, type Source } from '@shared/chat'
 import { useStore } from '../store'
 
@@ -26,24 +26,6 @@ function Sources({ sources }: { sources: Source[] }) {
           </li>
         ))}
       </ul>
-    </div>
-  )
-}
-
-function Answer({ text }: { text: string }) {
-  return (
-    <div className="markdown">
-      <Markdown
-        components={{
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          )
-        }}
-      >
-        {text}
-      </Markdown>
     </div>
   )
 }

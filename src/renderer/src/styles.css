@@ -160,16 +160,32 @@ h3.uppercase {
   padding-left: 0.9em;
   color: var(--color-muted);
 }
-.markdown table {
-  display: block;
+/* A wide table scrolls sideways inside the bubble (Answer.tsx wraps it). */
+.markdown .table-scroll {
   overflow-x: auto;
+}
+.markdown table {
   border-collapse: collapse;
+  font-size: 0.925em;
 }
 .markdown th,
 .markdown td {
-  border: 1px solid rgb(255 255 255 / 0.15);
-  padding: 0.3em 0.6em;
+  border: 1px solid color-mix(in srgb, var(--color-brass) 30%, transparent);
+  padding: 0.35em 0.65em;
   text-align: left;
+  vertical-align: top;
+  /* Whole words in cells; a table too wide for the bubble scrolls instead. */
+  overflow-wrap: normal;
+}
+.markdown th {
+  background: color-mix(in srgb, var(--color-brass) 15%, transparent);
+  font-weight: 600;
+}
+.markdown tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--color-paper) 4%, transparent);
+}
+.markdown del {
+  color: var(--color-muted);
 }
 
 /* Palace: a newly unlocked item or shell tier announces itself once. */
