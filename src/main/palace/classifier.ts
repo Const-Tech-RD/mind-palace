@@ -1,4 +1,5 @@
 import {
+  areaChange,
   buildClassifierPrompt,
   CLASSIFICATION_JSON_SCHEMA,
   CLASSIFIER_SYSTEM_PROMPT,
@@ -9,6 +10,7 @@ import {
   type Classification,
   type ClassifierMessage,
   type ClassifierRoom,
+  type KnownArea,
   type OpenProject
 } from '@shared/classify'
 import type { JsonAnswer } from '../chat/claude'
@@ -16,13 +18,16 @@ import type { PalaceRepo } from './repo'
 
 export interface ClassifierDeps {
   repo: PalaceRepo
-  rooms: ClassifierRoom[]
+  /** The rooms that exist now; rooms are made while the app runs. */
+  rooms: () => ClassifierRoom[]
   fallbackRoomId: string
   messagesOf: (chatId: string) => ClassifierMessage[]
   /** One JSON question to the model; the real one is `askJson` bound to Haiku. */
   askModel: (prompt: string, system: string, schema: Record<string, unknown>) => Promise<JsonAnswer>
   /** Tells the renderer a chat's room or suggestion changed. */
   onChanged: (chatId: string) => void
+  /** Runs before a chat changes room, so the room it leaves keeps what it earned. */
+  beforeMove?: () => void
   now?: () => Date
   log?: (message: string) => void
 }
@@ -38,6 +43,7 @@ export async function classifyTranscript(input: {
   fallbackRoomId: string
   messages: ClassifierMessage[]
   openProjects: OpenProject[]
+  knownAreas?: KnownArea[]
   askModel: ClassifierDeps['askModel']
 }): Promise<{ ok: true; result: Classification; tokensIn: number; tokensOut: number } | { ok: false; error: string }> {
   const prompt = buildClassifierPrompt(input)
@@ -77,10 +83,11 @@ export function createClassifier(deps: ClassifierDeps) {
     try {
       const openProjects = repo.openProjects()
       const outcome = await classifyTranscript({
-        rooms: deps.rooms,
+        rooms: deps.rooms(),
         fallbackRoomId: deps.fallbackRoomId,
         messages,
         openProjects,
+        knownAreas: repo.knownAreas(),
         askModel: deps.askModel
       })
       if (!outcome.ok) {
@@ -96,9 +103,12 @@ export function createClassifier(deps: ClassifierDeps) {
       const { result } = outcome
       const at = now().toISOString()
 
+      const newRoom = roomChange(chat, result)
+      if (newRoom !== null) deps.beforeMove?.()
       repo.transaction(() => {
-        const newRoom = roomChange(chat, result)
         if (newRoom !== null) repo.setRoom(chatId, newRoom, 'model')
+        const area = areaChange(chat, result)
+        if (area !== null) repo.setArea(chatId, area.key, area.name)
         repo.markClassified(chatId, at)
 
         const room = newRoom ?? chat.roomId ?? result.roomId

@@ -22,6 +22,28 @@ export interface OpenProject {
   roomId: string
 }
 
+/** An area of life already named, by its key and how the model first put it. */
+export interface KnownArea {
+  key: string
+  name: string
+}
+
+/**
+ * One key for every spelling of an area: lower case, runs of anything but
+ * letters and digits become `_`, no `_` at either end; accents are dropped,
+ * letters of other scripts kept. "3D printing",
+ * "3d-printing" and " 3D Printing " are all `3d_printing`.
+ */
+export function areaKey(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '') // "Música" and "Musica" are one area
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
 export interface ClassifierMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -35,7 +57,10 @@ export const classificationSchema = z.object({
   project_title: z.string().nullable(),
   next_step: z.string().nullable(),
   /** Id of an open project this chat continues, when it clearly does. */
-  existing_project_id: z.string().nullable()
+  existing_project_id: z.string().nullable(),
+  /** The area of life the chat is about: a known area's key, or a new short one. */
+  area: z.string(),
+  area_name: z.string()
 })
 export type RawClassification = z.infer<typeof classificationSchema>
 
@@ -43,19 +68,21 @@ export type RawClassification = z.infer<typeof classificationSchema>
 export const CLASSIFICATION_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['room_id', 'confidence', 'is_project', 'project_title', 'next_step', 'existing_project_id'],
+  required: ['room_id', 'confidence', 'is_project', 'project_title', 'next_step', 'existing_project_id', 'area', 'area_name'],
   properties: {
     room_id: { type: 'string' },
     confidence: { type: 'number' },
     is_project: { type: 'boolean' },
     project_title: { type: ['string', 'null'] },
     next_step: { type: ['string', 'null'] },
-    existing_project_id: { type: ['string', 'null'] }
+    existing_project_id: { type: ['string', 'null'] },
+    area: { type: 'string' },
+    area_name: { type: 'string' }
   }
 } as const
 
 export const CLASSIFIER_SYSTEM_PROMPT = [
-  'You sort chats from a personal chat app into rooms, and you spot chats that are the start of a project.',
+  'You sort chats from a personal chat app into rooms, name the area of life each chat is about, and spot chats that are the start of a project.',
   'You are given the rooms and the chat so far. Answer with the JSON object only.',
   'A project is something the person intends to build, make, plan or finish over more than one sitting (an app, a song, a logo, a trip plan). A single question, a lookup or a piece of advice is not a project.',
   'Be conservative about projects: a wrong project suggestion is more annoying than a missed one.'
@@ -74,6 +101,8 @@ export function buildClassifierPrompt(input: {
   fallbackRoomId: string
   messages: ClassifierMessage[]
   openProjects: OpenProject[]
+  /** Areas already named, so the model reuses them instead of coining near-duplicates. */
+  knownAreas?: KnownArea[]
 }): string {
   const rooms = input.rooms
     .map((room) => {
@@ -89,6 +118,9 @@ export function buildClassifierPrompt(input: {
       ? 'None.'
       : input.openProjects.map((p) => `- id "${p.id}" · room ${p.roomId} · ${p.title}`).join('\n')
 
+  const areas =
+    (input.knownAreas ?? []).length === 0 ? 'None yet.' : (input.knownAreas ?? []).map((a) => `- ${a.key} — ${a.name}`).join('\n')
+
   const chat = input.messages
     .filter((m) => m.role !== 'system')
     .map((m) => `${m.role === 'user' ? 'USER' : 'ASSISTANT'}: ${clip(m.content)}`)
@@ -99,6 +131,8 @@ export function buildClassifierPrompt(input: {
     rooms,
     '## Open projects',
     projects,
+    '## Known areas',
+    areas,
     '## Chat so far',
     chat,
     '## Your answer',
@@ -108,12 +142,16 @@ export function buildClassifierPrompt(input: {
       '- is_project: true only if this chat is the start or continuation of a project as defined above.',
       '- project_title: a short name for the project (3 to 6 words), or null when is_project is false.',
       '- next_step: one small concrete next step for the project, or null when is_project is false.',
-      '- existing_project_id: the id of an open project from the list that this chat clearly continues, otherwise null. Never invent an id.'
+      '- existing_project_id: the id of an open project from the list that this chat clearly continues, otherwise null. Never invent an id.',
+      '- area: the area of life this chat is about, broad like a part of someone\'s life (software, finance, 3D printing, cooking, health), not a single project or tool. Building an app, a site, a script or any tool is software, whatever the app is about. Reuse the key of a known area whenever it fits; only coin a new short key when none does.',
+      '- area_name: how to call that area in 1 to 3 words ("3D printing"); for a known area, its name from the list.'
     ].join('\n')
   ].join('\n\n')
 }
 
 export interface Classification {
+  /** The chat's area of life; null when the model gave nothing usable. */
+  area: KnownArea | null
   roomId: string
   confidence: number
   /** True when the room came from the fallback rule rather than the model's own pick. */
@@ -145,7 +183,14 @@ export function interpretClassification(
     if (existing && existing.roomId === roomId) project = { kind: 'existing', projectId: existing.id }
     else if (title !== '') project = { kind: 'new', title, nextStep: raw.next_step?.trim() || null }
   }
-  return { roomId, confidence: raw.confidence, fellBack, project }
+  const key = areaKey(raw.area)
+  const area = key === '' ? null : { key, name: raw.area_name.trim() || key }
+  return { area, roomId, confidence: raw.confidence, fellBack, project }
+}
+
+/** The area to store on the chat: only when it has none yet. An area, once set, is kept. */
+export function areaChange(chat: { area: string | null }, result: Pick<Classification, 'area'>): KnownArea | null {
+  return chat.area === null ? result.area : null
 }
 
 export interface ChatClassificationState {

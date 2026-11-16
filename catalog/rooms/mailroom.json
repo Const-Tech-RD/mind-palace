@@ -9,7 +9,8 @@
     "How much surcharge and interest do I owe on a late tax payment?",
     "Turn these voice notes from the meeting into minutes with owners and deadlines"
   ],
-  "accent": "#a9adc6",
+  "accent": "mp-room-mailroom",
+  "cell": [0, 0],
   "signature": [
     { "n": 1, "unlock": "start",  "item": "cardboard_box", "slot": "corner_right" },
     { "n": 2, "unlock": "streak", "item": "cardboard_box", "slot": "beside_seat" },

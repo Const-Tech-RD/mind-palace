@@ -1,7 +1,7 @@
 import type { Catalog, LadderStep, RoomDef, Rules, ShellTier } from '../catalog/schema'
 import { SHELL_TIERS, WEEKDAYS } from '../catalog/schema'
 import { dayFromNumber, dayNumber, weekdayIndex, weekdaysBetween, type LocalDay } from './days'
-import type { DecayLevel, NextUnlock, PlacedItem, Reward, RoomEvent, RoomState, Track } from './types'
+import type { DecayLevel, KeptProgress, NextUnlock, PlacedItem, Reward, RoomEvent, RoomState, Track } from './types'
 
 /**
  * The progression engine: a pure function from the event history to what a
@@ -21,7 +21,9 @@ export function computeRoomState(
   roomId: string,
   events: readonly RoomEvent[],
   rules: Catalog,
-  today: LocalDay
+  today: LocalDay,
+  /** What the room already earned; unlocks never drop below it. */
+  kept: KeptProgress = { bestStreak: 0, goalCount: 0 }
 ): RoomState {
   const room = rules.rooms[roomId]
   if (!room) {
@@ -51,14 +53,17 @@ export function computeRoomState(
     }
   }
 
-  const streak = computeStreak(roomDays, todayNum, graceSet(r))
+  const derived = computeStreak(roomDays, todayNum, graceSet(r))
+  const streak = { ...derived, best: Math.max(derived.best, kept.bestStreak) }
   const goalCount = goalDays.size
+  // Unlocks on the goal track are judged against the most goals ever counted.
+  const goalsReached = Math.max(goalCount, kept.goalCount)
 
   const trophyRule = r.tracks.goals.every_completion
   const trophyCapacity = r.layout.slots[trophyRule.slot]?.capacity ?? 1
-  const trophies = Math.min(goalCount, trophyRule.max, trophyCapacity)
+  const trophies = Math.min(goalsReached, trophyRule.max, trophyCapacity)
 
-  const { items, replaced, shell } = placeItems(r, room, streak.best, goalCount, trophies)
+  const { items, replaced, shell } = placeItems(r, room, streak.best, goalsReached, trophies)
 
   return {
     roomId,
@@ -72,7 +77,7 @@ export function computeRoomState(
     goals: {
       count: goalCount,
       completions,
-      milestonesReached: r.tracks.goals.milestones.filter((m) => m <= goalCount),
+      milestonesReached: r.tracks.goals.milestones.filter((m) => m <= goalsReached),
       trophies
     },
     shell,
@@ -81,7 +86,7 @@ export function computeRoomState(
     decay: decayOf(projects, today),
     nextUnlock: {
       streak: nextUnlock(r, room, 'streak', streak.best, streak.current),
-      goals: nextUnlock(r, room, 'goals', goalCount, goalCount)
+      goals: nextUnlock(r, room, 'goals', goalsReached, goalCount)
     }
   }
 }

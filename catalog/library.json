@@ -1,0 +1,388 @@
+{
+  "note": "The item library rooms pick their signature items from. Each item is tagged with the areas of life it suits (`areas`) and may suggest a default slot (`slot`). Same fields as items.json. Placeholder blocks until the sprites exist.",
+  "items": {
+    "coding_laptop": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1,
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "software"
+      ],
+      "slot": "desk_center"
+    },
+    "coding_monitor": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1,
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "software"
+      ],
+      "slot": "desk_center"
+    },
+    "coding_whiteboard": {
+      "layer": "wall_item",
+      "width": 2,
+      "height": 1.5,
+      "slots": [
+        "wall"
+      ],
+      "areas": [
+        "software"
+      ],
+      "slot": "wall_right_b"
+    },
+    "coding_rack": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 2,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "software"
+      ],
+      "slot": "corner_right"
+    },
+    "coding_arcade": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 2,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "software"
+      ],
+      "slot": "floor_right"
+    },
+    "music_mic": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 2,
+      "note": "Microphone on a floor stand",
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "music"
+      ],
+      "slot": "beside_seat"
+    },
+    "music_speakers": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1,
+      "note": "One studio monitor; placed twice",
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "music"
+      ],
+      "slot": "desk_left"
+    },
+    "music_keyboard": {
+      "layer": "floor_item",
+      "footprint": [
+        2,
+        1
+      ],
+      "height": 1,
+      "note": "Piano keyboard on a stand",
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "music"
+      ],
+      "slot": "floor_right"
+    },
+    "music_guitar": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1.5,
+      "note": "Guitar on a stand",
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "music"
+      ],
+      "slot": "corner_right"
+    },
+    "music_mixer": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 0.5,
+      "note": "Small mixing console",
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "music"
+      ],
+      "slot": "desk_center"
+    },
+    "art_sketchbook": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 0.5,
+      "note": "Open sketchbook with pencils",
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "art"
+      ],
+      "slot": "desk_center"
+    },
+    "art_easel": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 2.5,
+      "note": "Easel with a canvas",
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "art"
+      ],
+      "slot": "corner_right"
+    },
+    "art_paint_cart": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1,
+      "note": "Rolling cart with paints and brushes",
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "art"
+      ],
+      "slot": "beside_seat"
+    },
+    "art_pegboard": {
+      "layer": "wall_item",
+      "width": 2,
+      "height": 1.5,
+      "note": "Pegboard with hanging tools",
+      "slots": [
+        "wall"
+      ],
+      "areas": [
+        "art"
+      ],
+      "slot": "wall_right_b"
+    },
+    "art_pottery_wheel": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1,
+      "note": "Pottery wheel with a pot in progress",
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "art"
+      ],
+      "slot": "floor_right"
+    },
+    "finance_ledger": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 0.4,
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "finance"
+      ],
+      "slot": "desk_center",
+      "note": "Open ledger book with a pen"
+    },
+    "finance_calculator": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 0.3,
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "finance"
+      ],
+      "slot": "desk_left",
+      "note": "Desk calculator with a paper roll"
+    },
+    "finance_chart": {
+      "layer": "wall_item",
+      "width": 2,
+      "height": 1.5,
+      "slots": [
+        "wall"
+      ],
+      "areas": [
+        "finance"
+      ],
+      "slot": "wall_right_b",
+      "note": "Framed chart with a rising line"
+    },
+    "finance_safe": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1.5,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "finance"
+      ],
+      "slot": "corner_right",
+      "note": "Small iron safe"
+    },
+    "finance_filing_cabinet": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 2,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "finance"
+      ],
+      "slot": "floor_right",
+      "note": "Filing cabinet with labelled drawers"
+    },
+    "print3d_printer": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 2,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "3d_printing"
+      ],
+      "slot": "corner_right",
+      "note": "3D printer on a stand, mid-print"
+    },
+    "print3d_filament_rack": {
+      "layer": "wall_item",
+      "width": 2,
+      "height": 1.2,
+      "slots": [
+        "wall"
+      ],
+      "areas": [
+        "3d_printing"
+      ],
+      "slot": "wall_right_b",
+      "note": "Wall rack of filament spools"
+    },
+    "print3d_calipers": {
+      "layer": "surface_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 0.3,
+      "slots": [
+        "desk_surface"
+      ],
+      "areas": [
+        "3d_printing"
+      ],
+      "slot": "desk_left",
+      "note": "Calipers and a printed test cube"
+    },
+    "print3d_spool_bin": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "3d_printing"
+      ],
+      "slot": "beside_seat",
+      "note": "Bin of spare spools"
+    },
+    "print3d_part_shelf": {
+      "layer": "floor_item",
+      "footprint": [
+        1,
+        1
+      ],
+      "height": 1.5,
+      "slots": [
+        "floor"
+      ],
+      "areas": [
+        "3d_printing"
+      ],
+      "slot": "floor_right",
+      "note": "Shelf of finished prints"
+    }
+  }
+}

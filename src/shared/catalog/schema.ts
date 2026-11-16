@@ -172,15 +172,37 @@ export const itemsFileSchema = z.object({
   items: z.record(id, assetSchema.extend({ slots: z.array(z.enum(SLOT_KINDS)).min(1) }))
 })
 
+/** catalog/library.json: items rooms pick their signature from, tagged by area of life. */
+export const libraryFileSchema = z.object({
+  note: z.string().optional(),
+  items: z.record(
+    id,
+    assetSchema.extend({
+      slots: z.array(z.enum(SLOT_KINDS)).min(1),
+      /** Area keys this item suits (`software`, `3d_printing`). */
+      areas: z.array(z.string().regex(/^[a-z0-9][a-z0-9_]*$/, 'must be an area key (lower-case letters, digits, underscores)')).min(1),
+      /** The slot it goes in when nothing says otherwise. */
+      slot: id.optional()
+    })
+  )
+})
+
+/** A room's accent: the name of a CSS token (`mp-room-accent-3`); themes swap the token, never a hex. */
+export const ACCENT_TOKEN = /^mp-room-[a-z0-9-]+$/
+
 export const roomSchema = z.object({
   id,
   name: z.string().min(1),
   belongs: z.string().min(1),
   not_here: z.string(),
   examples: z.array(z.string().min(1)).min(1),
-  accent: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb colour'),
-  signature: z.array(signatureStepSchema).min(1),
-  assets: z.record(id, assetSchema)
+  accent: z.string().regex(ACCENT_TOKEN, 'must be a room accent token (mp-room-…)'),
+  /** Where the room stands on the palace grid; the Mail room is [0, 0]. */
+  cell: z.tuple([z.number().int(), z.number().int()]),
+  /** The area of life the room was made from; null for the Mail room. */
+  area: z.string().nullable().default(null),
+  signature: z.array(signatureStepSchema),
+  assets: z.record(id, assetSchema).default({})
 })
 
 export type Rules = z.infer<typeof rulesSchema>
@@ -190,6 +212,7 @@ export type RoomDef = z.infer<typeof roomSchema>
 export type SignatureStep = RoomDef['signature'][number]
 
 export type ItemsFile = z.infer<typeof itemsFileSchema>
+export type LibraryFile = z.infer<typeof libraryFileSchema>
 
 /** One placeable item, from items.json or a room's assets. */
 export interface ItemDef {
@@ -203,13 +226,21 @@ export interface ItemDef {
   mirrorable: boolean
 }
 
-/** Everything the engine and the UI need from the catalog files. */
+/** A library item: an item rooms may pick as a signature, with the areas it suits. */
+export interface LibraryItem extends ItemDef {
+  areas: string[]
+  slot?: string
+}
+
+/** Everything the engine and the UI need from the catalog files and the rooms table. */
 export interface Catalog {
   rules: Rules
-  /** Keyed by room id. */
+  /** Keyed by room id: the Mail room's file plus the rooms the person made. */
   rooms: Record<string, RoomDef>
-  /** Every placeable item: items.json merged with each room's assets. */
+  /** Every placeable item: items.json, the library and each room file's assets. */
   items: Record<string, ItemDef>
+  /** catalog/library.json, keyed by item id. */
+  library: Record<string, LibraryItem>
 }
 
 /** One problem in one catalog file, addressed by file path and field. */

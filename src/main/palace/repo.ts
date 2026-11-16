@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
-import type { OpenProject } from '@shared/classify'
+import type { KnownArea, OpenProject } from '@shared/classify'
 import type { ProjectState, ProjectSummary } from '@shared/projects'
 import type { Db } from '../db/client'
-import { chats, goalCompletions, projectChats, projects } from '../db/schema'
+import { chats, goalCompletions, projectChats, projects, rooms } from '../db/schema'
 
 type ProjectRecord = typeof projects.$inferSelect
 
@@ -15,6 +15,8 @@ export interface ChatClassificationRow {
   lastMessageAt: string | null
   suggestedProjectId: string | null
   projectDismissedAt: string | null
+  area: string | null
+  areaName: string | null
 }
 
 /** Rooms, classification state and projects: everything phase 2 stores. */
@@ -26,7 +28,9 @@ export function createPalaceRepo(db: Db) {
     classifiedAt: chats.classifiedAt,
     lastMessageAt: chats.lastMessageAt,
     suggestedProjectId: chats.suggestedProjectId,
-    projectDismissedAt: chats.projectDismissedAt
+    projectDismissedAt: chats.projectDismissedAt,
+    area: chats.area,
+    areaName: chats.areaName
   }
 
   function summarize(rows: ProjectRecord[]): ProjectSummary[] {
@@ -70,6 +74,24 @@ export function createPalaceRepo(db: Db) {
 
     setRoom(chatId: string, roomId: string, source: 'model' | 'user'): void {
       db.update(chats).set({ roomId, roomSource: source }).where(eq(chats.id, chatId)).run()
+    },
+
+    setArea(chatId: string, key: string, name: string): void {
+      db.update(chats).set({ area: key, areaName: name }).where(eq(chats.id, chatId)).run()
+    },
+
+    /** Every area named so far: the rooms' areas first, then the chats' (first name seen wins). */
+    knownAreas(): KnownArea[] {
+      const known = new Map<string, string>()
+      for (const room of db.select({ area: rooms.area, name: rooms.name }).from(rooms).all()) known.set(room.area, room.name)
+      const tagged = db
+        .select({ area: chats.area, name: chats.areaName })
+        .from(chats)
+        .where(sql`${chats.area} is not null`)
+        .orderBy(chats.createdAt)
+        .all()
+      for (const chat of tagged) if (chat.area && !known.has(chat.area)) known.set(chat.area, chat.name ?? chat.area)
+      return [...known].map(([key, name]) => ({ key, name }))
     },
 
     markClassified(chatId: string, at: string): void {

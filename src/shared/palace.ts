@@ -4,13 +4,15 @@
  * Pure: rows in, view model out.
  */
 import type { Catalog, ShellTier } from './catalog'
-import { buildFloor, type FloorView } from './floor'
+import { buildFloor, nextCell, type Cell, type FloorView } from './floor'
+import type { Suggestion } from './suggest'
 import { dropTargets } from './editMode'
 import { resolvePlacements, type InventoryItem, type Placement, type ResolvedItem } from './placements'
 import {
   buildRoomEvents,
   computeRoomState,
   type HistoryRows,
+  type KeptProgress,
   type LocalDay,
   type NextUnlock,
   type PlacedItem,
@@ -20,6 +22,7 @@ import {
 
 export interface PalaceRoom {
   id: string
+  cell: Cell
   name: string
   accent: string
   state: RoomState
@@ -39,6 +42,10 @@ export interface PalaceRoom {
 export interface PalaceView {
   today: LocalDay
   rooms: PalaceRoom[]
+  /** Areas ready to become rooms, busiest first. Only the person's Materialize makes one. */
+  suggestions: Suggestion[]
+  /** The top suggestion, drawn as a ghost where its room would stand. */
+  ethereal: (Suggestion & { cell: Cell }) | null
   /** The same rooms laid out on the one connected floor, for the canvas. */
   floor: FloorView
 }
@@ -76,10 +83,14 @@ export function buildPalace(input: {
   placements?: readonly Placement[]
   /** The room zoomed into, whose back walls rise and show what hangs on them. */
   focus?: string | null
+  /** What each room already earned (`room_progress`); unlocks never drop below it. */
+  kept?: Readonly<Record<string, KeptProgress>>
+  /** Areas ready to become rooms (`suggestRooms`); the first is drawn as a ghost room. */
+  suggestions?: readonly Suggestion[]
 }): PalaceView {
   const events = buildRoomEvents(input.rows, input.timeZone)
   const rooms = Object.values(input.catalog.rooms).map((room) => {
-    const state = computeRoomState(room.id, events, input.catalog, input.today)
+    const state = computeRoomState(room.id, events, input.catalog, input.today, input.kept?.[room.id])
     const fresh = newSince(input.seen[room.id] ?? null, state)
     const resolved = resolvePlacements(state, input.placements ?? [], input.catalog)
     const earned = [...resolved.placed.map((p) => p.instance), ...resolved.inventory.map((i) => i.instance)]
@@ -90,6 +101,7 @@ export function buildPalace(input: {
     }
     return {
       editor,
+      cell: room.cell,
       id: room.id,
       name: room.name,
       accent: room.accent,
@@ -102,7 +114,16 @@ export function buildPalace(input: {
     }
   })
   const floorRooms = rooms.map((r) => ({ ...r, decay: r.decay.level }))
-  return { today: input.today, rooms, floor: buildFloor(input.catalog, floorRooms, input.focus ?? null) }
+  const suggestions = [...(input.suggestions ?? [])]
+  const top = suggestions[0]
+  const ethereal = top ? { ...top, cell: nextCell(rooms.map((r) => r.cell)) } : null
+  return {
+    today: input.today,
+    rooms,
+    suggestions,
+    ethereal,
+    floor: buildFloor(input.catalog, floorRooms, input.focus ?? null, ethereal ? { cell: ethereal.cell, name: ethereal.name } : null)
+  }
 }
 
 const SPECIAL_LABELS: Record<string, string> = {
@@ -117,7 +138,8 @@ export function itemLabel(itemId: string, roomIds: readonly string[] = []): stri
   const special = SPECIAL_LABELS[itemId]
   if (special) return special
   let name = itemId
-  for (const prefix of ['base', 'mail', ...roomIds]) {
+  // Library items carry their area as a prefix (catalog/library.json); rooms' own items their room id.
+  for (const prefix of ['base', 'mail', 'coding', 'music', 'art', 'finance', 'print3d', ...roomIds]) {
     if (name.startsWith(`${prefix}_`)) {
       name = name.slice(prefix.length + 1)
       break
@@ -204,4 +226,9 @@ const DECAY_WORD: Record<1 | 2 | 3 | 4, string> = { 1: 'Dusty', 2: 'Cobwebs', 3:
 export function decayText(decay: RoomState['decay'], projectTitle: string | null): string | null {
   if (decay.level === 0) return null
   return `${DECAY_WORD[decay.level]}: ${decay.weekdaysQuiet} quiet weekdays on ${projectTitle ?? 'its quietest project'}`
+}
+
+/** A suggested room in words: "3D printing · 4 chats". */
+export function suggestionText(suggestion: Suggestion): string {
+  return `${suggestion.name} · ${plural(suggestion.chats, 'chat')}`
 }

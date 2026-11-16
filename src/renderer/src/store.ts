@@ -86,6 +86,13 @@ interface State {
   place(change: PlacementChange): Promise<void>
   /** Puts an item back where the catalog puts it. */
   resetPlacement(roomId: string, instance: string): Promise<void>
+  /** Makes the room for a suggested area and opens it. Resolves to an error message, or null. */
+  materializeRoom(area: string, name?: string): Promise<string | null>
+  /** "Not now" on a suggested room. */
+  dismissArea(area: string): Promise<void>
+  renameRoom(roomId: string, name: string): Promise<string | null>
+  /** "Find my rooms": tags the Mail room's chats with areas. Resolves to a line to show. */
+  findRooms(): Promise<string>
   /** Marks the room as looked at; what is highlighted as new stays on screen until the next refresh. */
   markRoomSeen(roomId: string): Promise<void>
   showReminders(): Promise<void>
@@ -362,6 +369,44 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  async materializeRoom(area, name) {
+    try {
+      const palace = await window.mindPalace.invoke('rooms:materialize', { area, ...(name ? { name } : {}) })
+      const made = palace.rooms.find((r) => r.state && !get().palace?.rooms.some((old) => old.id === r.id))
+      set({ palace, appError: null, palaceRoomId: made?.id ?? get().palaceRoomId })
+      return null
+    } catch (error) {
+      return describe(error)
+    }
+  },
+
+  async dismissArea(area) {
+    try {
+      set({ palace: await window.mindPalace.invoke('rooms:dismiss', { area }), appError: null })
+    } catch (error) {
+      set({ appError: describe(error) })
+    }
+  },
+
+  async renameRoom(roomId, name) {
+    try {
+      set({ palace: await window.mindPalace.invoke('rooms:rename', { roomId, name }), appError: null })
+      return null
+    } catch (error) {
+      return describe(error)
+    }
+  },
+
+  async findRooms() {
+    try {
+      const { tagged, view } = await window.mindPalace.invoke('rooms:find')
+      set({ palace: view, appError: null })
+      return tagged === 0 ? 'No areas found yet.' : `Sorted ${tagged} chat${tagged === 1 ? '' : 's'} into areas.`
+    } catch (error) {
+      return describe(error)
+    }
+  },
+
   async markRoomSeen(roomId) {
     try {
       await window.mindPalace.invoke('palace:seen', { roomId })
@@ -411,6 +456,12 @@ export const useStore = create<State>((set, get) => ({
     switch (event.type) {
       case 'reminders_changed':
         void get().refreshReminders()
+        if (get().view === 'projects') void get().refreshProjects()
+        break
+      case 'rooms_changed':
+        void window.mindPalace.status().then((status) => set({ status }))
+        void get().refreshChats()
+        void get().refreshPalace()
         if (get().view === 'projects') void get().refreshProjects()
         break
       case 'open_project':

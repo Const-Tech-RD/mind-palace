@@ -2,9 +2,12 @@
  * Classifier eval: `npm run eval [files...]`.
  *
  * Reads `eval/*.jsonl` (or the files given), one chat per line:
- *   {"messages": ["first user message", "second user message"], "room_id": "coding", "is_project": false}
- * runs the real classifier over each, and prints room accuracy, project
- * precision and recall, and the lines it got wrong.
+ *   {"messages": ["first user message", "second user message"], "room_id": "software", "is_project": false, "area": "software"}
+ * runs the real classifier over each, and prints room accuracy, area
+ * agreement, project precision and recall, and the lines it got wrong.
+ *
+ * Rooms are made by each person now, so the eval files chats against fixture
+ * rooms (scripts/eval-rooms.json: Software, Music, Art) plus the Mail room.
  *
  * It calls Claude through the local Claude Code login, so it uses plan limits.
  * `eval/` is git-ignored: the files hold real chats.
@@ -16,6 +19,7 @@ import { loadCatalog } from '../src/main/catalog/loader'
 import { askJson } from '../src/main/chat/claude'
 import { classifyTranscript } from '../src/main/palace/classifier'
 import {
+  areaAgreement,
   parseEvalLine,
   PROJECT_PRECISION_TARGET,
   ROOM_ACCURACY_TARGET,
@@ -62,20 +66,24 @@ async function main(): Promise<void> {
   if (files.length === 0) {
     console.error(
       'No eval files. Put your labelled chats in eval/<name>.jsonl, one JSON object per line:\n' +
-        '  {"messages": ["first user message", "second user message"], "room_id": "coding", "is_project": false}\n' +
+        '  {"messages": ["first user message", "second user message"], "room_id": "software", "is_project": false, "area": "software"}\n' +
         'or try the made-up sample: npm run eval -- scripts/eval-sample.jsonl'
     )
     process.exit(2)
   }
 
   const catalog = loadCatalog(join(root, 'catalog'))
-  const rooms = Object.values(catalog.rooms).map(({ id, name, belongs, not_here, examples }) => ({
+  const fixture = JSON.parse(readFileSync(join(root, 'scripts', 'eval-rooms.json'), 'utf8')) as {
+    rooms: Array<{ id: string; name: string; area: string; belongs: string; not_here: string; examples: string[] }>
+  }
+  const rooms = [...Object.values(catalog.rooms), ...fixture.rooms].map(({ id, name, belongs, not_here, examples }) => ({
     id,
     name,
     belongs,
     not_here,
     examples
   }))
+  const knownAreas = fixture.rooms.map((r) => ({ key: r.area, name: r.name }))
   const roomIds = new Set(rooms.map((room) => room.id))
   const cases = files.flatMap(readCases)
   for (const c of cases) {
@@ -96,6 +104,7 @@ async function main(): Promise<void> {
         fallbackRoomId: catalog.rules.classification.fallback_room,
         messages: c.expected.messages.map((content) => ({ role: 'user' as const, content })),
         openProjects: [],
+        knownAreas,
         askModel: (prompt, system, schema) =>
           askJson({ prompt, system, schema, model: MODEL, cwd: tmpdir(), appVersion: 'eval' })
       })
@@ -106,7 +115,8 @@ async function main(): Promise<void> {
           got: {
             roomId: outcome.result.roomId,
             isProject: outcome.result.project.kind !== 'none',
-            confidence: outcome.result.confidence
+            confidence: outcome.result.confidence,
+            area: outcome.result.area?.key ?? null
           }
         }
       } else {
@@ -120,6 +130,7 @@ async function main(): Promise<void> {
 
   const score = scoreEval(outcomes)
   console.log(`Room accuracy      ${percent(score.roomAccuracy)}   (target ${percent(ROOM_ACCURACY_TARGET)})`)
+  console.log(`Area agreement     ${percent(areaAgreement(outcomes))}   (pairs grouped as labelled; names do not matter)`)
   console.log(`Project precision  ${percent(score.projectPrecision)}   (target above ${percent(PROJECT_PRECISION_TARGET)})`)
   console.log(`Project recall     ${percent(score.projectRecall)}`)
   console.log(`Tokens used        ${tokens}`)

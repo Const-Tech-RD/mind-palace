@@ -5,6 +5,7 @@ import {
   crossValidateCatalog,
   formatIssue,
   itemsFileSchema,
+  libraryFileSchema,
   roomSchema,
   rulesSchema,
   zodIssuesToCatalogIssues,
@@ -67,6 +68,8 @@ export function loadCatalog(dir: string): LoadedCatalog {
   const rules = readAndParse(rulesFile, rulesSchema, issues)
   const itemsFile = join(dir, 'items.json')
   const shared = readAndParse(itemsFile, itemsFileSchema, issues)
+  const libraryFile = join(dir, 'library.json')
+  const library = readAndParse(libraryFile, libraryFileSchema, issues)
 
   const roomsDir = join(dir, 'rooms')
   let roomFileNames: string[] = []
@@ -94,11 +97,19 @@ export function loadCatalog(dir: string): LoadedCatalog {
 
   let warnings: CatalogIssue[] = []
   let items: Catalog['items'] = {}
+  let libraryItems: Catalog['library'] = {}
   if (rules) {
-    const cross = crossValidateCatalog(rulesFile, rules, roomFiles, { file: itemsFile, items: shared?.items ?? {} })
+    const cross = crossValidateCatalog(
+      rulesFile,
+      rules,
+      roomFiles,
+      { file: itemsFile, items: shared?.items ?? {} },
+      { file: libraryFile, items: library?.items ?? {} }
+    )
     issues.push(...cross.errors)
     warnings = cross.warnings
     items = cross.items
+    libraryItems = cross.library
   }
 
   if (issues.length > 0 || !rules) throw new CatalogError(issues)
@@ -107,6 +118,7 @@ export function loadCatalog(dir: string): LoadedCatalog {
     rules,
     rooms: Object.fromEntries(roomFiles.map(({ room }) => [room.id, room])),
     items,
+    library: libraryItems,
     warnings
   }
 }

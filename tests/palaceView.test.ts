@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryRows } from '../src/shared/engine'
-import { activeToday, buildPalace, currentRoomOf, decayText, itemKey, itemLabel, newSince, rewardText, seenKeys, trackProgress } from '../src/shared/palace'
+import { activeToday, buildPalace, currentRoomOf, decayText, itemKey, itemLabel, newSince, rewardText, seenKeys, suggestionText, trackProgress } from '../src/shared/palace'
 import { addDays } from './shared'
 import { catalog } from './helpers'
 
@@ -199,5 +199,73 @@ describe('decayText', () => {
     [decay(4, 31), null, 'Dark: 31 quiet weekdays on its quietest project']
   ] as const)('level %#', (d, title, expected) => {
     expect(decayText(d, title)).toBe(expected)
+  })
+})
+
+describe('buildPalace with kept progress', () => {
+  it('shows what a room earned even after its chats left', () => {
+    const view = buildPalace({
+      catalog,
+      rows: { chats: [], messages: [], goalCompletions: [] },
+      timeZone: TZ,
+      today: TODAY,
+      seen: {},
+      kept: { coding: { bestStreak: 8, goalCount: 0 } }
+    })
+    expect(roomOf(view, 'coding').placed.map((p) => p.item)).toContain('coding_whiteboard')
+  })
+})
+
+describe('rows for rooms that no longer exist', () => {
+  it('are ignored, not a crash', () => {
+    const view = palace({
+      chats: [{ id: 'old', roomId: 'gone' }],
+      messages: [{ chatId: 'old', role: 'user', createdAt: `${TODAY}T16:00:00.000Z` }],
+      goalCompletions: [{ projectId: 'p', roomId: 'gone', localDay: TODAY }]
+    })
+    expect(view.rooms.map((r) => r.id)).not.toContain('gone')
+    for (const room of view.rooms) expect(room.state.streak.current).toBe(0)
+  })
+})
+
+describe('suggested rooms in the palace', () => {
+  const suggestion = (area: string, chats: number) => ({ area, name: area, chats, lastAt: null })
+
+  it('draws the top suggestion as a ghost in the next free cell', () => {
+    const view = buildPalace({
+      catalog,
+      rows: { chats: [], messages: [], goalCompletions: [] },
+      timeZone: TZ,
+      today: TODAY,
+      seen: {},
+      suggestions: [suggestion('finance', 5), suggestion('cooking', 3)]
+    })
+    // The test catalog fills cells [0,0], [-1,0], [0,-1], [-1,-1]; the next is [-2,0].
+    expect(view.ethereal).toEqual({ area: 'finance', name: 'finance', chats: 5, lastAt: null, cell: [-2, 0] })
+    expect(view.floor.ethereal).toMatchObject({ name: 'finance', cell: [-2, 0] })
+    expect(view.suggestions.map((s) => s.area)).toEqual(['finance', 'cooking'])
+  })
+
+  it('has no ghost without suggestions', () => {
+    const view = buildPalace({ catalog, rows: { chats: [], messages: [], goalCompletions: [] }, timeZone: TZ, today: TODAY, seen: {} })
+    expect(view.ethereal).toBeNull()
+    expect(view.floor.ethereal).toBeNull()
+    expect(view.suggestions).toEqual([])
+  })
+})
+
+describe('suggestionText', () => {
+  it('names the area and how many chats are about it', () => {
+    expect(suggestionText({ area: '3d_printing', name: '3D printing', chats: 4, lastAt: null })).toBe('3D printing · 4 chats')
+    expect(suggestionText({ area: 'x', name: 'Cooking', chats: 1, lastAt: null })).toBe('Cooking · 1 chat')
+  })
+})
+
+describe('itemLabel for library items', () => {
+  it('drops the library prefix, whichever room the item stands in', () => {
+    expect(itemLabel('print3d_printer')).toBe('Printer')
+    expect(itemLabel('print3d_filament_rack')).toBe('Filament rack')
+    expect(itemLabel('finance_filing_cabinet')).toBe('Filing cabinet')
+    expect(itemLabel('coding_monitor')).toBe('Monitor')
   })
 })

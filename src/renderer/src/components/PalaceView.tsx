@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AGENT_LABEL, roomAgents, type RoomAgent } from '@shared/agents'
+import { accentCss } from '../theme'
+import { AGENT_LABEL, roomAgents, SORTING_ROOM, type RoomAgent } from '@shared/agents'
 import { activeToday, currentRoomOf, decayText, itemKey, itemLabel, SHELL_LABEL, trackProgress, type PalaceRoom, type TrackProgress } from '@shared/palace'
 import { useStore } from '../store'
 import { ActivityStrip } from './ActivityStrip'
-import { PalaceCanvas, type CanvasLabel } from './PalaceCanvas'
+import { PalaceCanvas, type CanvasLabel, ETHEREAL_LABEL } from './PalaceCanvas'
 import { PalaceList, RoomSummary } from './PalaceList'
 import { InventoryDrawer } from './InventoryDrawer'
+import { FindRooms, RenameRoom, RoomSuggestion } from './RoomSuggestion'
 import { ROOM_IMAGE } from './roomArt'
 
 const MAX_TROPHIES = 5
@@ -261,7 +263,7 @@ export function PalaceView() {
                   active ? 'bg-raised text-paper' : 'text-paper/70 hover:bg-paper/5'
                 }`}
               >
-                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: r.accent }} />
+                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(r.accent) }} />
                 {r.name}
                 {isNew && !active && <span className="size-1.5 rounded-full bg-gold" aria-label="something new" />}
               </button>
@@ -323,6 +325,15 @@ export function PalaceView() {
                     </div>
                   )
                 })()}
+                {!room && mode === 'scene' && palace.ethereal && (() => {
+                  const spot = labels.find((l) => l.id === ETHEREAL_LABEL)
+                  if (!spot) return null
+                  return (
+                    <div key={`ghost-${palace.ethereal.area}`} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: spot.left, top: spot.top }}>
+                      <RoomSuggestion suggestion={palace.ethereal} />
+                    </div>
+                  )
+                })()}
                 {!room &&
                   mode === 'scene' &&
                   labels.map((label) => {
@@ -352,9 +363,9 @@ export function PalaceView() {
                         )}
                         <span
                           className="flex items-center gap-1.5 rounded-full border border-brass/50 bg-walnut/90 px-2.5 py-1 text-xs shadow-lg backdrop-blur"
-                          style={today ? { boxShadow: `0 0 0 1px ${r.accent}, 0 0 14px -2px ${r.accent}` } : undefined}
+                          style={today ? { boxShadow: `0 0 0 1px ${accentCss(r.accent)}, 0 0 14px -2px ${accentCss(r.accent)}` } : undefined}
                         >
-                          <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: r.accent }} />
+                          <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: accentCss(r.accent) }} />
                           <span className="font-semibold">{r.name}</span>
                           {onWalls > 0 && (
                             <span className="text-[10px] text-muted" title="On a low wall: shown when you open the room">
@@ -400,6 +411,7 @@ export function PalaceView() {
                     >
                       {activeProjects} active project{activeProjects === 1 ? '' : 's'}
                     </button>
+                    <FindRooms />
                   </div>
                 )}
 
@@ -440,7 +452,7 @@ export function PalaceView() {
                       </p>
                     )}
                     <figcaption className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-brass/50 bg-walnut/85 px-3 py-1 text-xs backdrop-blur">
-                      <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
+                      <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(room.accent) }} />
                       {SHELL_LABEL[room.state.shell]}
                     </figcaption>
                     {hasShelf && (
@@ -497,15 +509,31 @@ export function PalaceView() {
                     })}
                   </ul>
                   <p className="mt-3 text-xs text-muted">Each piece is a placeholder block until its drawing exists. The walls and floor warm up as the streak grows.</p>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(true)}
-                    className="mt-3 rounded-full border border-brass/50 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
-                  >
-                    Arrange room{room.inventory.length > 0 ? ` · ${room.inventory.length} in the inventory` : ''}
-                  </button>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(true)}
+                      className="rounded-full border border-brass/50 px-3 py-1.5 text-xs font-semibold hover:bg-raised"
+                    >
+                      Arrange room{room.inventory.length > 0 ? ` · ${room.inventory.length} in the inventory` : ''}
+                    </button>
+                    {room.id !== SORTING_ROOM && <RenameRoom key={room.id} roomId={room.id} name={room.name} />}
+                  </div>
                 </section>
               ) : (
+                <>
+                {palace.suggestions.length > (mode === 'scene' ? 1 : 0) && (
+                  <section key="possible" className="mt-4" aria-label="Possible rooms">
+                    <h3 className="text-xs font-medium tracking-wide text-muted uppercase">Possible rooms</h3>
+                    <ul className="mt-2 flex flex-wrap gap-2">
+                      {palace.suggestions.slice(mode === 'scene' ? 1 : 0).map((s) => (
+                        <li key={s.area}>
+                          <RoomSuggestion suggestion={s} compact />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 <p key="where" className="mt-4 text-center text-sm text-muted" role="status">
                   {natoRoomName ? `Nato is in the ${natoRoomName}, where you last worked. ` : ''}
                   {activeRooms.length === 0
@@ -513,6 +541,7 @@ export function PalaceView() {
                     : `Today you chatted in the ${activeRooms.map((r) => r.name).join(' and the ')}.`}{' '}
                   Click a room to go in. Scroll to zoom, drag to move.
                 </p>
+                </>
               )}
             </div>
             {room && <RoomAside room={room} roomIds={roomIds} />}

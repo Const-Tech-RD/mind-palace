@@ -11,7 +11,7 @@
  * filed and quiet projects are snoozed, so neither the classifier nor the
  * reminders run.
  */
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -74,10 +74,37 @@ function quietProject(db, roomId, weekdays) {
   ).run(`fx-${roomId}-quiet`, `Quiet ${roomId} project`, roomId, weekdaysAgo(weekdays), iso(90), iso(-365))
 }
 
+/** Rooms the person "made": the old placeholder rooms, rebuilt from library items, plus extras by id. */
+const ROOMS = {
+  coding: { name: 'Coding room', area: 'software', accent: 0, cell: [-1, -1], items: [['coding_laptop', 'desk_center'], ['coding_monitor', 'desk_center'], ['coding_whiteboard', 'wall_right_b'], ['coding_rack', 'corner_right'], ['coding_arcade', 'floor_right']] },
+  music: { name: 'Music studio', area: 'music', accent: 1, cell: [-1, 0], items: [['music_mic', 'beside_seat'], ['music_speakers', 'desk_left'], ['music_keyboard', 'floor_right'], ['music_guitar', 'corner_right'], ['music_mixer', 'desk_center']] },
+  art: { name: 'Art workshop', area: 'art', accent: 2, cell: [0, -1], items: [['art_sketchbook', 'desk_center'], ['art_easel', 'corner_right'], ['art_paint_cart', 'beside_seat'], ['art_pegboard', 'wall_right_b'], ['art_pottery_wheel', 'floor_right']] },
+  finance: { name: 'Finance', area: 'finance', accent: 3, cell: [-2, 0], items: [['finance_ledger', 'desk_center'], ['finance_chart', 'wall_right_b'], ['finance_safe', 'corner_right'], ['finance_filing_cabinet', 'floor_right']] }
+}
+function rooms(db, ids = ['coding', 'music', 'art']) {
+  const add = db.prepare('insert into rooms (id, name, area, accent, cell_x, cell_y, signature, classifier, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  ids.forEach((id, i) => {
+    const r = ROOMS[id]
+    const signature = JSON.stringify(r.items.map(([item, slot]) => ({ item, slots: [slot] })))
+    const classifier = JSON.stringify({ belongs: `Chats about ${r.area}.`, not_here: '', examples: [`A chat about ${r.area}`] })
+    add.run(id, r.name, r.area, r.accent, r.cell[0], r.cell[1], signature, classifier, iso(100 - i))
+  })
+}
+
 const fixtures = {
-  empty: { seed: () => {}, focus: ['coding'] },
+  empty: { seed: (db) => rooms(db), focus: ['coding'] },
+  alone: { seed: () => {}, focus: [] },
+  grown: {
+    seed: (db) => {
+      rooms(db, ['coding', 'music', 'art', 'finance'])
+      streak(db, 'finance', 8)
+      streak(db, 'coding', 5)
+    },
+    focus: ['finance']
+  },
   furnished: {
     seed: (db) => {
+      rooms(db)
       streak(db, 'coding', 34)
       goals(db, 'coding', 13)
       streak(db, 'music', 8)
@@ -91,6 +118,7 @@ const fixtures = {
   },
   decay: {
     seed: (db) => {
+      rooms(db)
       for (const room of ['coding', 'music', 'art', 'mailroom']) streak(db, room, 5)
       quietProject(db, 'coding', 8)
       quietProject(db, 'music', 15)
@@ -102,12 +130,12 @@ const fixtures = {
   }
 }
 
-async function launch(userData) {
+async function launch(userData, extra = {}) {
   const app = await electron.launch({
     executablePath: require('electron'),
     args: ['.'],
     cwd: root,
-    env: cleanEnv({ MIND_PALACE_USER_DATA: userData })
+    env: cleanEnv({ MIND_PALACE_USER_DATA: userData, ...extra })
   })
   const page = await app.firstWindow()
   await page.setViewportSize({ width: 1400, height: 900 }).catch(() => {})
@@ -200,6 +228,7 @@ async function editorRun() {
     await quit(app)
     let db = new DatabaseSync(join(userData, 'mind-palace.sqlite'))
     db.prepare("insert or replace into settings (key, value) values ('timezone', ?)").run(TZ)
+    rooms(db)
     streak(db, 'coding', 2) // desk, chair (crate replaced), laptop
     db.close()
 
@@ -257,8 +286,136 @@ async function editorRun() {
   return { files, checks }
 }
 
+/** A Mail-room chat with one user message, tagged with `area` (or untagged). */
+function mailChat(db, id, title, area, areaName, daysAgo) {
+  db.prepare(
+    "insert into chats (id, title, room_id, room_source, classified_at, created_at, last_message_at, area, area_name) values (?, ?, 'mailroom', 'model', ?, ?, ?, ?, ?)"
+  ).run(id, title, iso(0), iso(daysAgo), iso(daysAgo), area, areaName)
+  db.prepare("insert into messages (id, chat_id, role, content, created_at, local_day) values (?, ?, 'user', ?, ?, ?)").run(`${id}-m`, id, title, iso(daysAgo), localDay(iso(daysAgo)))
+}
+
+/**
+ * Rooms grow end to end, with a stubbed model: three 3D-printing chats show a
+ * ghost room; "Find my rooms" tags three more as finance; Materialize makes the
+ * 3D printing room, its chats move in, the Mail room keeps what it earned, and
+ * all of it survives a restart.
+ */
+async function roomsRun() {
+  const userData = mkdtempSync(join(tmpdir(), 'mind-palace-shots-rooms-'))
+  const answers = join(userData, 'fake-model.json')
+  writeFileSync(
+    answers,
+    JSON.stringify({
+      grouping: { areas: [{ key: 'finance', name: 'Finance', session_ids: ['u1', 'u2', 'u3'] }] },
+      materialize: {
+        name: '3D printing',
+        belongs: 'Printers, filament, slicing and printed parts.',
+        not_here: 'Buying things online.',
+        examples: ['Why does my first layer not stick?'],
+        items: [
+          { item: 'print3d_printer', slot: 'corner_right' },
+          { item: 'print3d_filament_rack', slot: 'wall_right_b' },
+          { item: 'flux_capacitor', slot: 'floor_right' },
+          { item: 'print3d_calipers', slot: 'desk_left' }
+        ]
+      }
+    })
+  )
+  const files = []
+  const checks = []
+  const check = (ok, what) => checks.push(`${ok ? 'PASS' : 'FAIL'} ${what}`)
+  const shot = async (page, name) => {
+    await page.screenshot({ path: join(outDir, `${name}.png`) })
+    files.push(`${name}.png`)
+  }
+  try {
+    let { app } = await launch(userData)
+    await quit(app)
+    let db = new DatabaseSync(join(userData, 'mind-palace.sqlite'))
+    db.prepare("insert or replace into settings (key, value) values ('timezone', ?)").run(TZ)
+    streak(db, 'mailroom', 5)
+    mailChat(db, 'p1', 'First layer will not stick', '3d_printing', '3D printing', 1)
+    mailChat(db, 'p2', 'Best filament for outdoor parts', '3d_printing', '3D printing', 2)
+    mailChat(db, 'p3', 'Calibrate e-steps', '3d_printing', '3d printing', 3)
+    mailChat(db, 'u1', 'Budget for December', null, null, 1)
+    mailChat(db, 'u2', 'Car loan interest', null, null, 2)
+    mailChat(db, 'u3', 'Rent is late', null, null, 3)
+    db.close()
+
+    let run = await launch(userData, { MIND_PALACE_FAKE_MODEL: answers })
+    let page = run.page
+    await settle(page)
+    const ghost = page.locator('[data-suggestion="3d_printing"]').first()
+    check(await ghost.isVisible(), 'a ghost room offers 3D printing after 3 chats')
+    await shot(page, 'rooms-ghost')
+
+    await page.getByRole('button', { name: 'Find my rooms' }).click()
+    await page.getByRole('status').filter({ hasText: 'Sorted 3 chats' }).waitFor({ timeout: 10_000 })
+    await settle(page, 600)
+    check(await page.getByRole('region', { name: 'Possible rooms' }).locator('[data-suggestion="finance"]').isVisible(), '"Find my rooms" adds Finance to the possible rooms')
+    await shot(page, 'rooms-found')
+
+    const mailBefore = await page.evaluate(async () => (await window.mindPalace.invoke('palace:view', {})).rooms.find((r) => r.id === 'mailroom').state.items.length)
+    await ghost.getByRole('button', { name: 'Materialize' }).click()
+    await page.locator('[data-testid="palace-stage"][data-room="room_3d_printing"]').waitFor({ timeout: 10_000 })
+    await settle(page)
+    await shot(page, 'rooms-materialized')
+    await page.keyboard.press('Escape')
+    await settle(page)
+    await shot(page, 'rooms-grown')
+    const after = await page.evaluate(async () => await window.mindPalace.invoke('palace:view', {}))
+    const made = after.rooms.find((r) => r.id === 'room_3d_printing')
+    check(made !== undefined && made.name === '3D printing', 'the room is made with the proposed name')
+    check(made?.placed.some((p) => p.item === 'print3d_printer') === true, 'its first pick stands in it from the start')
+    check(after.rooms.find((r) => r.id === 'mailroom').state.items.length >= mailBefore, 'the Mail room keeps everything it had earned')
+    check(after.ethereal?.area === 'finance', 'Finance is now the ghost room')
+    await quit(run.app)
+
+    db = new DatabaseSync(join(userData, 'mind-palace.sqlite'))
+    const moved = db.prepare("select count(*) n from chats where room_id = 'room_3d_printing'").get().n
+    const sig = JSON.parse(db.prepare("select signature from rooms where id = 'room_3d_printing'").get().signature)
+    db.close()
+    check(moved === 3, `the three 3D printing chats moved in (${moved})`)
+    check(sig.length === 3 && !sig.some((s) => s.item === 'flux_capacitor'), 'the unknown pick was dropped, the rest kept in order')
+
+    run = await launch(userData, { MIND_PALACE_FAKE_MODEL: answers })
+    page = run.page
+    await settle(page)
+    const again = await page.evaluate(async () => await window.mindPalace.invoke('palace:view', {}))
+    check(again.rooms.some((r) => r.id === 'room_3d_printing'), 'the room survives a restart')
+    const twice = await page.evaluate(async () => {
+      try {
+        await window.mindPalace.invoke('rooms:materialize', { area: '3d_printing' })
+        return 'made'
+      } catch (error) {
+        return String(error)
+      }
+    })
+    check(twice.includes('already a room'), 'a second Materialize for the same area is refused')
+    await quit(run.app)
+    return { files, checks }
+  } finally {
+    try {
+      rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+    } catch {
+      // Windows may still hold a Chromium file for a moment.
+    }
+  }
+}
+
 mkdirSync(outDir, { recursive: true })
 const wanted = process.argv.slice(2)
+if (wanted.includes('rooms')) {
+  try {
+    const { files, checks } = await roomsRun()
+    console.log(`rooms: ${files.join(', ')}`)
+    for (const line of checks) console.log(line)
+    if (checks.some((c) => c.startsWith('FAIL'))) process.exitCode = 1
+  } catch (error) {
+    console.log(`rooms: FAILED ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
+    process.exitCode = 1
+  }
+}
 if (wanted.includes('editor')) {
   try {
     const { files, checks } = await editorRun()

@@ -2,6 +2,8 @@ import { localDayOf, type HistoryRows } from '@shared/engine'
 import type { Catalog } from '@shared/catalog'
 import { buildPalace, seenKeys, type PalaceView } from '@shared/palace'
 import type { Store } from '../db/client'
+import type { ProgressKeeper } from './progress'
+import type { Suggestion } from '@shared/suggest'
 import { and, eq } from 'drizzle-orm'
 import { checkPlacement, nextPlacement, type Placement, type PlacementChange } from '@shared/placements'
 import { chats, goalCompletions, messages, placements, projects } from '../db/schema'
@@ -19,8 +21,8 @@ function readSeen(store: Store, roomId: string): string[] | null {
   }
 }
 
-/** The rows the engine needs, straight from the database. Unlocks are never stored. */
-function historyRows(store: Store, timeZone: string): HistoryRows {
+/** The rows the engine needs, straight from the database. */
+export function historyRows(store: Store, timeZone: string): HistoryRows {
   return {
     chats: store.db.select({ id: chats.id, roomId: chats.roomId }).from(chats).all(),
     messages: store.db
@@ -39,13 +41,25 @@ function historyRows(store: Store, timeZone: string): HistoryRows {
   }
 }
 
-export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZone: () => string; now?: () => Date }) {
-  const { store, catalog } = deps
+export function createPalaceView(deps: {
+  store: Store
+  catalog: () => Catalog
+  keeper: ProgressKeeper
+  /** Areas ready to become rooms; none until the room service is wired. */
+  suggestions?: () => Suggestion[]
+  timeZone: () => string
+  now?: () => Date
+}) {
+  const { store, keeper } = deps
   const now = deps.now ?? (() => new Date())
 
   function view(focus: string | null = null): PalaceView {
     const timeZone = deps.timeZone()
+    const catalog = deps.catalog()
+    keeper.record()
     return buildPalace({
+      kept: keeper.kept(),
+      suggestions: deps.suggestions?.() ?? [],
       placements: placementRows(),
       focus,
       catalog,
@@ -68,7 +82,7 @@ export function createPalaceView(deps: { store: Store; catalog: Catalog; timeZon
       const room = view().rooms.find((r) => r.id === change.roomId)
       if (!room) throw new Error(`There is no room "${change.roomId}".`)
       const rows = placementRows()
-      const check = checkPlacement(change, room.state, rows, catalog)
+      const check = checkPlacement(change, room.state, rows, deps.catalog())
       if (!check.ok) throw new Error(check.reason)
       const current = rows.find((r) => r.roomId === change.roomId && r.instance === change.instance)
       const next = { ...nextPlacement(current, change), updatedAt: now().toISOString() }

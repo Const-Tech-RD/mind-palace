@@ -1,0 +1,44 @@
+{
+  "note": "Fixture rooms for `npm run eval`: the classifier text of the old placeholder rooms, so room accuracy stays measurable now that rooms are made by each person.",
+  "rooms": [
+    {
+      "id": "software",
+      "name": "Software",
+      "area": "software",
+      "belongs": "Building, fixing, running and deploying software: web apps, dashboards and internal panels, websites and landing pages, browser extensions, mobile app builds and store submissions, scripts and scrapers, databases, APIs, hosting, DNS, security reviews of deployed projects, and dev tools.",
+      "not_here": "Reading business numbers out of an app with no change to the app, writing proposals or ad campaigns (Mail room). Judging how a design, image or video looks, or generating visuals (Art workshop). Music production software used to make music (Music studio). Cleaning up a personal computer or organising notes (Mail room).",
+      "examples": [
+        "The export on production shows the wrong total, find the cause and fix it",
+        "Add a date-range comparison to the metrics dashboard and open a PR",
+        "Build a browser extension that sends the video I'm watching to a chat",
+        "Check that my private admin panels aren't indexed or open to attackers"
+      ]
+    },
+    {
+      "id": "music",
+      "name": "Music studio",
+      "area": "music",
+      "belongs": "Making and recording music: songwriting, lyrics, theory, instruments and practice, mixing and mastering, DAWs and plugins as a user, studio gear, room acoustics and home-studio planning, and music analysis or recommendations.",
+      "not_here": "Writing code for an audio tool (Coding room). Cover art or music video visuals (Art workshop). Choosing background music for a video edit (Art workshop). The business side of a music channel with no music-making question (Mail room).",
+      "examples": [
+        "Give me three budgets for a home studio in a spare bedroom",
+        "Where should the desk and monitors go in this room for the best acoustics?",
+        "What chords fit over a ii-V-I in B flat?",
+        "Help me finish the second verse of this song"
+      ]
+    },
+    {
+      "id": "art",
+      "name": "Art workshop",
+      "area": "art",
+      "belongs": "Visual work judged by how it looks: graphic and brand design, logos, ad creatives and social visuals, image and video generation prompts, photo retouching and upscaling, video editing, UI and layout critique, illustration and drawing.",
+      "not_here": "Implementing a design in code or building a tool that generates visuals (Coding room). Ad copy, captions, budgets and campaign setup (Mail room). Compressing or downloading a file with no visual question (Mail room). Album or song work (Music studio).",
+      "examples": [
+        "These photos look flat and grey, make them brighter and sharper",
+        "Give me a prompt for a striking, modern redesign of this homepage",
+        "The generated clip looks fake, make the ad more dynamic and exciting",
+        "Here are my app's screens, what should I remove, add or improve?"
+      ]
+    }
+  ]
+}

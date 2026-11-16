@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import { accentCss } from '../theme'
 import { groupChatsByRoom } from '@shared/chat'
 import { useStore } from '../store'
 
@@ -134,7 +135,7 @@ export function Sidebar() {
           {groups.map((group) => (
             <section key={group.id} className="mt-3 first:mt-0">
               <h2 className="flex items-center gap-2 px-2 py-1 text-xs font-medium tracking-wide text-muted uppercase">
-                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: group.accent }} />
+                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(group.accent) }} />
                 {group.name}
               </h2>
               <ul>

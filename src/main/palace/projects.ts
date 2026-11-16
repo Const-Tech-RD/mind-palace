@@ -4,7 +4,8 @@ import type { PalaceRepo } from './repo'
 
 export interface ProjectServiceDeps {
   repo: PalaceRepo
-  roomIds: readonly string[]
+  /** The rooms that exist now; rooms are made while the app runs. */
+  roomIds: () => readonly string[]
   /** IANA timezone used for the one-completion-per-day rule. */
   timeZone: () => string
   onChanged: (chatId: string) => void
@@ -12,6 +13,12 @@ export interface ProjectServiceDeps {
   afterAction?: (projectId: string, action: ProjectAction) => void
   /** Called when a linked chat gets a new message. */
   afterActivity?: (projectId: string) => void
+  /** Runs before a chat changes room, so the room it leaves keeps what it earned. */
+  beforeMove?: () => void
+  /** Counted goal days in a room, read before a reopen removes some. */
+  goalDaysOf?: (roomId: string) => number
+  /** After a goal is reopened in a room: its kept goal mark drops by the days removed. */
+  afterReopen?: (roomId: string, daysBefore: number) => void
   now?: () => Date
 }
 
@@ -76,6 +83,7 @@ export function createProjectService(deps: ProjectServiceDeps) {
       if (!project) throw new Error('That project no longer exists.')
       const at = now()
       const change = applyProjectAction(project.state, action, at)
+      const daysBefore = change.completion === 'remove' ? (deps.goalDaysOf?.(project.roomId) ?? 0) : 0
       repo.transaction(() => {
         repo.updateProject(projectId, {
           state: change.state,
@@ -90,14 +98,16 @@ export function createProjectService(deps: ProjectServiceDeps) {
           repo.removeCompletions(projectId)
         }
       })
+      if (change.completion === 'remove') deps.afterReopen?.(project.roomId, daysBefore)
       deps.afterAction?.(projectId, action)
       return repo.project(projectId)!
     },
 
     /** "Move to room": the user's choice, which the classifier never overrides. */
     moveChat(chatId: string, roomId: string): void {
-      if (!deps.roomIds.includes(roomId)) throw new Error(`There is no room "${roomId}".`)
+      if (!deps.roomIds().includes(roomId)) throw new Error(`There is no room "${roomId}".`)
       if (!repo.chat(chatId)) throw new Error('That chat no longer exists.')
+      deps.beforeMove?.()
       repo.setRoom(chatId, roomId, 'user')
       deps.onChanged(chatId)
     },

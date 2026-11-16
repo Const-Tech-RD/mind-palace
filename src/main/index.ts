@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog } from 'electron'
 import { formatIssue } from '@shared/catalog'
@@ -6,13 +6,18 @@ import type { ChatEvent } from '@shared/chat'
 import { APP_EVENT_CHANNEL, CHAT_EVENT_CHANNEL, type AppEvent, type AppStatus } from '@shared/ipc'
 import { SCHEDULER_MINUTES } from '@shared/reminders'
 import { CatalogError, loadCatalog, type LoadedCatalog } from './catalog/loader'
-import { askJson } from './chat/claude'
+import { askJson, type JsonAnswer } from './chat/claude'
 import { createChatRepo } from './chat/repo'
 import { createChatService, type ChatService } from './chat/service'
 import { createClassifier } from './palace/classifier'
 import { createProjectService } from './palace/projects'
 import { createPalaceRepo } from './palace/repo'
 import { createPalaceView } from './palace/view'
+import { createProgressKeeper } from './palace/progress'
+import { createRoomsRepo } from './palace/roomsRepo'
+import { createRoomService } from './palace/roomService'
+import { catalogWithValidRooms, roomDefFromRow } from '@shared/rooms'
+import type { Catalog } from '@shared/catalog'
 import { openStore, type Store } from './db/client'
 import { handle } from './ipc'
 import { applyStartAtLogin, getStartAtLogin } from './loginItem'
@@ -74,11 +79,28 @@ function start(): void {
   }
   applyStartAtLogin(db)
 
+  const fileCatalog = catalog
+  const roomsRepo = createRoomsRepo(db.db)
+  /** The catalog with the rooms the person made; read fresh, since rooms are made while the app runs. */
+  const currentCatalog = (): Catalog =>
+    catalogWithValidRooms(
+      fileCatalog,
+      roomsRepo.rows().flatMap((row) => {
+        try {
+          return [roomDefFromRow(row)]
+        } catch (error) {
+          console.warn(`[mind-palace] room "${row.id}" is left out: ${error instanceof Error ? error.message : String(error)}`)
+          return []
+        }
+      }),
+      (message) => console.warn(`[mind-palace] ${message}`)
+    )
+
   const status = (): AppStatus => ({
     version: app.getVersion(),
     databasePath: db.path,
     tables: db.tables(),
-    rooms: Object.values(catalog.rooms).map(({ id, name, accent }) => ({ id, name, accent })),
+    rooms: Object.values(currentCatalog().rooms).map(({ id, name, accent }) => ({ id, name, accent })),
     catalogWarnings: catalog.warnings.map(formatIssue),
     startAtLogin: getStartAtLogin(db)
   })
@@ -96,11 +118,15 @@ function start(): void {
   const stamped = chatRepo.fillMissingLocalDays()
   if (stamped > 0) console.log(`[mind-palace] stored the local day on ${stamped} older messages`)
   const palaceRepo = createPalaceRepo(db.db)
+  // Earned stays earned: store each room's marks before anything can move a chat.
+  const keeper = createProgressKeeper({ store: db, catalog: currentCatalog, timeZone })
+  keeper.record()
   const onChanged = (chatId: string): void => emit({ type: 'updated', chatId })
 
   const emitApp = (event: AppEvent): void => getMainWindow()?.webContents.send(APP_EVENT_CHANNEL, event)
+  const fakeModel = !app.isPackaged ? process.env['MIND_PALACE_FAKE_MODEL'] : undefined
   const askSmallModel = (prompt: string, system: string, schema: Record<string, unknown>) =>
-    askJson({
+    fakeModel ? fakeAnswer(fakeModel, schema) : askJson({
       prompt,
       system,
       schema,
@@ -113,11 +139,14 @@ function start(): void {
   let reminders: ReminderService | null = null
   const projects = createProjectService({
     repo: palaceRepo,
-    roomIds: Object.keys(catalog.rooms),
+    roomIds: () => Object.keys(currentCatalog().rooms),
     timeZone,
     onChanged,
     afterAction: (projectId, action) => reminders?.afterProjectAction(projectId, action),
-    afterActivity: (projectId) => reminders?.afterProjectActivity(projectId)
+    afterActivity: (projectId) => reminders?.afterProjectActivity(projectId),
+    beforeMove: () => keeper.record(),
+    goalDaysOf: (roomId) => keeper.goalDays(roomId),
+    afterReopen: (roomId, daysBefore) => keeper.resetGoals(roomId, daysBefore)
   })
   const reminderService = createReminderService({
     repo: createReminderRepo(db.db),
@@ -145,17 +174,19 @@ function start(): void {
   reminders = reminderService
   const classifier = createClassifier({
     repo: palaceRepo,
-    rooms: Object.values(catalog.rooms).map(({ id, name, belongs, not_here, examples }) => ({
-      id,
-      name,
-      belongs,
-      not_here,
-      examples
-    })),
+    rooms: () =>
+      Object.values(currentCatalog().rooms).map(({ id, name, belongs, not_here, examples }) => ({
+        id,
+        name,
+        belongs,
+        not_here,
+        examples
+      })),
     fallbackRoomId: catalog.rules.classification.fallback_room,
     messagesOf: (chatId) => chatRepo.messages(chatId),
     askModel: askSmallModel,
     onChanged,
+    beforeMove: () => keeper.record(),
     log: (message) => console.warn(`[mind-palace] ${message}`)
   })
 
@@ -203,10 +234,36 @@ function start(): void {
     return { dismissed: true }
   })
   handle('project:action', ({ projectId, action }) => projects.act(projectId, action))
-  const palace = createPalaceView({ store: db, catalog, timeZone })
+  const roomService = createRoomService({
+    store: db,
+    roomsRepo,
+    palaceRepo,
+    keeper,
+    catalog: currentCatalog,
+    askModel: askSmallModel,
+    onChanged: () => emitApp({ type: 'rooms_changed' })
+  })
+  const palace = createPalaceView({ store: db, catalog: currentCatalog, keeper, suggestions: roomService.suggestions, timeZone })
   handle('palace:view', (request) => palace.view(request?.focus ?? null))
   handle('palace:place', (change) => palace.place(change))
   handle('palace:reset', ({ roomId, instance }) => palace.reset(roomId, instance))
+  handle('rooms:materialize', async ({ area, name }) => {
+    const roomId = await roomService.materialize(area, name)
+    return palace.view(roomId)
+  })
+  handle('rooms:dismiss', ({ area }) => {
+    roomService.dismiss(area)
+    return palace.view()
+  })
+  handle('rooms:rename', ({ roomId, name }) => {
+    roomService.rename(roomId, name)
+    emitApp({ type: 'rooms_changed' })
+    return palace.view(roomId)
+  })
+  handle('rooms:find', async () => {
+    const tagged = await roomService.findAreas()
+    return { tagged, view: palace.view() }
+  })
   handle('palace:seen', ({ roomId }) => {
     palace.markSeen(roomId)
     return { seen: true }
@@ -271,4 +328,21 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(start)
+}
+
+/**
+ * Screenshot runs only (never a packaged build): answers small-model calls from
+ * a JSON file `{ "materialize": …, "grouping": …, "classify": … }`, picked by
+ * the shape asked for, so the UI can be driven without the network.
+ */
+function fakeAnswer(file: string, schema: Record<string, unknown>): Promise<JsonAnswer> {
+  const required = (schema['required'] as string[] | undefined) ?? []
+  const kind = required.includes('items') ? 'materialize' : required.includes('areas') ? 'grouping' : 'classify'
+  try {
+    const answers = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+    if (!(kind in answers)) return Promise.resolve({ ok: false, error: `the fake model has no "${kind}" answer` })
+    return Promise.resolve({ ok: true, value: answers[kind], tokensIn: 0, tokensOut: 0 })
+  } catch (error) {
+    return Promise.resolve({ ok: false, error: `the fake model file cannot be read: ${error instanceof Error ? error.message : String(error)}` })
+  }
 }

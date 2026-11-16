@@ -108,6 +108,25 @@ export interface IpcContract {
     request: { roomId: string }
     response: { seen: true }
   }
+  /** Makes the room for an area (one model call); its Mail-room chats move in. `name` overrides the proposed name. */
+  'rooms:materialize': {
+    request: { area: string; name?: string }
+    response: PalaceView
+  }
+  /** "Not now": the area is not suggested again until 5 more chats arrive in it. */
+  'rooms:dismiss': {
+    request: { area: string }
+    response: PalaceView
+  }
+  'rooms:rename': {
+    request: { roomId: string; name: string }
+    response: PalaceView
+  }
+  /** "Find my rooms": the model tags the Mail room's chats with areas. */
+  'rooms:find': {
+    request: void
+    response: { tagged: number; view: PalaceView }
+  }
   /** Reminders waiting for a reaction, newest first. */
   'reminder:list': {
     request: void
@@ -132,6 +151,8 @@ export const CHAT_EVENT_CHANNEL = 'chat:event'
 export type AppEvent =
   /** The reminder inbox changed. */
   | { type: 'reminders_changed' }
+  /** A room was made or renamed, or chats were moved or tagged by room changes: refresh rooms, chats and palace. */
+  | { type: 'rooms_changed' }
   /** A notification was clicked: show this project's chat (or the projects panel if it has none). */
   | { type: 'open_project'; projectId: string; chatId: string | null }
 
@@ -174,6 +195,10 @@ export const IPC_CHANNELS = [
   'palace:seen',
   'palace:place',
   'palace:reset',
+  'rooms:materialize',
+  'rooms:dismiss',
+  'rooms:rename',
+  'rooms:find',
   'reminder:list',
   'reminder:respond',
   'reminder:notifications'
