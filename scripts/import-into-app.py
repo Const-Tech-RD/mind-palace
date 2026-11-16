@@ -5,7 +5,8 @@ rooms, streaks and projects show real history.
     python3 scripts/import-into-app.py            # dry run: prints what it would do
     python3 scripts/import-into-app.py --apply    # backs up the database, then imports
 
-Reads import/sessions.jsonl (scripts/extract-claude-code.py), import/labels.jsonl
+Reads import/sessions.jsonl (scripts/extract-claude-code.py), import/web-sessions.jsonl
+(scripts/extract-claude-web.py, if present), import/labels.jsonl
 (project per session; any room in it is ignored) and, if present,
 import/project-states.json ({"Project name": "active" | "paused" | "done" | "dropped"}).
 
@@ -39,7 +40,7 @@ NOISE_CONFIDENCE = 0.3
 
 
 def load_jsonl(path):
-    with open(path) as handle:
+    with open(path, encoding='utf8') as handle:
         return [json.loads(line) for line in handle if line.strip()]
 
 
@@ -97,7 +98,8 @@ def plan(sessions, labels, states, now):
         chat_id = 'cc-' + session['id']
         chats.append({
             'id': chat_id,
-            'title': title_of(session['messages'][0]['text'], label),
+            # claude.ai chats carry their own name; Claude Code sessions are titled from the first message.
+            'title': session.get('name') if session.get('name') and not label else title_of(session['messages'][0]['text'], label),
             'room_id': room,
             'room_source': 'model',
             'classified_at': now,
@@ -138,6 +140,9 @@ def main():
     args = parser.parse_args()
 
     sessions = load_jsonl(os.path.join(HERE, 'import', 'sessions.jsonl'))
+    web_path = os.path.join(HERE, 'import', 'web-sessions.jsonl')
+    if os.path.exists(web_path):
+        sessions += load_jsonl(web_path)
     labels_path = os.path.join(HERE, 'import', 'labels.jsonl')
     labels = load_jsonl(labels_path) if os.path.exists(labels_path) else []
     states_path = os.path.join(HERE, 'import', 'project-states.json')
@@ -177,6 +182,18 @@ def main():
         tz_name = tz_row[0] if tz_row else 'UTC'
 
         db.execute('BEGIN IMMEDIATE')
+        # What the app has done with earlier imported rows survives a re-import:
+        # a chat's room and area (rooms the person made, "Find my rooms"), its
+        # project answer, a project's room and state, and goals and links made in the app.
+        kept_chats = db.execute(
+            "SELECT id, room_id, room_source, area, area_name, classified_at, suggested_project_id, project_dismissed_at "
+            "FROM chats WHERE id LIKE 'cc-%'").fetchall()
+        kept_projects = db.execute(
+            "SELECT id, room_id, state, closed_at, snoozed_until, next_step FROM projects WHERE id LIKE 'ccp-%'").fetchall()
+        kept_goals = db.execute(
+            "SELECT id, project_id, room_id, local_day FROM goal_completions WHERE project_id LIKE 'ccp-%' AND id NOT LIKE 'ccg-%'").fetchall()
+        kept_links = db.execute(
+            "SELECT project_id, chat_id FROM project_chats WHERE project_id LIKE 'ccp-%' OR chat_id LIKE 'cc-%'").fetchall()
         # Replace an earlier import. Order matters: projects reference chats.
         db.execute("DELETE FROM projects WHERE id LIKE 'ccp-%'")
         db.execute("DELETE FROM chats WHERE id LIKE 'cc-%'")
@@ -193,8 +210,23 @@ def main():
         for project_id, room, closed in sorted(completions, key=lambda row: row[2]):
             db.execute('INSERT INTO goal_completions (id, project_id, room_id, local_day) VALUES (?, ?, ?, ?)',
                        ('ccg-' + project_id[4:], project_id, room, local_day(closed, tz_name)))
+        db.executemany(
+            'UPDATE chats SET room_id = ?, room_source = ?, area = ?, area_name = ?, classified_at = ?, '
+            'suggested_project_id = ?, project_dismissed_at = ? WHERE id = ?',
+            [(*row[1:], row[0]) for row in kept_chats])
+        db.executemany(
+            'UPDATE projects SET room_id = ?, state = ?, closed_at = ?, snoozed_until = ?, next_step = ? WHERE id = ?',
+            [(*row[1:], row[0]) for row in kept_projects])
+        db.executemany(
+            'INSERT OR IGNORE INTO goal_completions (id, project_id, room_id, local_day) '
+            'SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?)',
+            [(*row, row[1]) for row in kept_goals])
+        db.executemany(
+            'INSERT OR IGNORE INTO project_chats (project_id, chat_id) '
+            'SELECT ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?) AND EXISTS (SELECT 1 FROM chats WHERE id = ?)',
+            [(p, c, p, c) for p, c in kept_links])
         db.commit()
-        print('imported.')
+        print(f'imported. kept from before: {len(kept_chats)} chats, {len(kept_projects)} projects, {len(kept_goals)} goals made in the app')
     finally:
         db.close()
 
