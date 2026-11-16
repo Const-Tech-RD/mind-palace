@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { accentCss } from '../theme'
 import Markdown from 'react-markdown'
 import { splitSources, type ChatMessage, type Source } from '@shared/chat'
 import { useStore } from '../store'
@@ -127,7 +128,7 @@ export function ChatView() {
         <h1 className="min-w-0 truncate text-sm font-medium" title={chat?.title}>{chat?.title || 'New chat'}</h1>
         {room && chatWide && (
           <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-paper/10 px-2.5 py-0.5 text-xs">
-            <span className="inline-block size-2 rounded-full" style={{ backgroundColor: room.accent }} />
+            <span className="inline-block size-2 rounded-full" style={{ backgroundColor: accentCss(room.accent) }} />
             {room.name}
           </span>
         )}

@@ -1,11 +1,16 @@
 import { join } from 'node:path'
 import { loadCatalog } from '../src/main/catalog/loader'
+import { catalogWithRooms } from '../src/shared/rooms'
+import { FIXTURE_ROOMS } from './fixtures/rooms'
 import { addDays, type Catalog, type LocalDay, type RoomEvent, type RoomState } from './shared'
 
 export const CATALOG_DIR = join(process.cwd(), 'catalog')
 
-/** The real catalog files, exactly as the app loads them. */
-export const catalog: Catalog = loadCatalog(CATALOG_DIR)
+/**
+ * The real catalog files, exactly as the app loads them, plus the three rooms
+ * the catalog used to ship (now made from library items, see ./fixtures/rooms).
+ */
+export const catalog: Catalog = catalogWithRooms(loadCatalog(CATALOG_DIR), FIXTURE_ROOMS)
 
 export const chatsOn = (roomId: string, days: LocalDay[]): RoomEvent[] =>
   days.map((localDay) => ({ kind: 'user_message', roomId, localDay }))

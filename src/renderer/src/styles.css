@@ -51,9 +51,15 @@
   --mp-dark: #0b0706;
   --mp-dust: #cbb89a;
   --mp-cobweb: #d8d2c4;
-  --mp-room-coding: #5eead4;
-  --mp-room-music: #f0abfc;
-  --mp-room-art: #fb923c;
+  /* Room accents: a new room takes the lowest unused index (src/shared/rooms.ts). */
+  --mp-room-accent-0: #5eead4;
+  --mp-room-accent-1: #f0abfc;
+  --mp-room-accent-2: #fb923c;
+  --mp-room-accent-3: #a3e635;
+  --mp-room-accent-4: #7dd3fc;
+  --mp-room-accent-5: #facc15;
+  --mp-room-accent-6: #f87171;
+  --mp-room-accent-7: #c4b5fd;
   --mp-room-mailroom: #a9adc6;
 }
 

@@ -37,3 +37,10 @@ describe('colours in the renderer', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('room accent tokens', () => {
+  it('defines all eight', () => {
+    const css = readFileSync(join(__dirname, '../src/renderer/src/styles.css'), 'utf8')
+    for (let i = 0; i < 8; i++) expect(css, `--mp-room-accent-${i}`).toContain(`--mp-room-accent-${i}: #`)
+  })
+})

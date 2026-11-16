@@ -43,5 +43,8 @@ export function readPalette(root: Element = document.documentElement): Palette {
   return Object.fromEntries(Object.entries(PALETTE_TOKENS).map(([role, token]) => [role, readToken(token, root)])) as Palette
 }
 
-/** The CSS variable holding a room's accent. */
-export const roomAccentToken = (roomId: string): string => `--mp-room-${roomId}`
+/** The CSS variable for a room's accent token name (`mp-room-accent-3` → `--mp-room-accent-3`). */
+export const accentVar = (accent: string): string => `--${accent}`
+
+/** A room's accent as a CSS value, for `style` props. */
+export const accentCss = (accent: string): string => `var(${accentVar(accent)})`

@@ -1,4 +1,4 @@
-import type { CatalogIssue, ItemDef, ItemsFile, RoomDef, Rules, SlotKind } from './schema'
+import type { CatalogIssue, ItemDef, ItemsFile, LibraryFile, LibraryItem, RoomDef, Rules, SlotKind } from './schema'
 
 /**
  * Cross-file checks that a single zod schema cannot express: every slot, room
@@ -10,8 +10,15 @@ import type { CatalogIssue, ItemDef, ItemsFile, RoomDef, Rules, SlotKind } from 
 export interface CrossValidation {
   errors: CatalogIssue[]
   warnings: CatalogIssue[]
-  /** Every placeable item: items.json merged with each room's assets. */
+  /** Every placeable item: items.json, the library and each room's assets. */
   items: Record<string, ItemDef>
+  library: Record<string, LibraryItem>
+}
+
+/** catalog/library.json as loaded, with its path for messages. */
+export interface LibraryItems {
+  file: string
+  items: LibraryFile['items']
 }
 
 /** catalog/items.json as loaded, with its path for messages. */
@@ -29,7 +36,8 @@ export function crossValidateCatalog(
   rulesFile: string,
   rules: Rules,
   roomFiles: RoomFile[],
-  shared: SharedItems = { file: 'items.json', items: {} }
+  shared: SharedItems = { file: 'items.json', items: {} },
+  library: LibraryItems = { file: 'library.json', items: {} }
 ): CrossValidation {
   const errors: CatalogIssue[] = []
   const warnings: CatalogIssue[] = []
@@ -59,6 +67,16 @@ export function crossValidateCatalog(
   // --- items: every item a ladder places is defined, and fits its own slot ---
   const roomAssetIds = new Set(roomFiles.flatMap(({ room }) => Object.keys(room.assets)))
   const isDefined = (item: string): boolean => Object.hasOwn(shared.items, item) || roomAssetIds.has(item)
+
+  // --- library.json: its own ids, and slot hints that exist and fit ----------
+  for (const [itemId, def] of Object.entries(library.items)) {
+    if (Object.hasOwn(shared.items, itemId)) err(library.file, `items.${itemId}`, 'is already defined in items.json')
+    else if (roomAssetIds.has(itemId)) err(library.file, `items.${itemId}`, "is already defined in a room's assets")
+    if (def.slot === undefined) continue
+    const slot = slots[def.slot]
+    if (!slot) err(library.file, `items.${itemId}.slot`, `unknown slot "${def.slot}"`)
+    else if (!def.slots.includes(slot.kind)) err(library.file, `items.${itemId}.slot`, `"${itemId}" may not stand in a "${slot.kind}" slot like "${def.slot}"`)
+  }
   const checkSharedItem = (item: string, slotName: string, field: string): void => {
     if (!isDefined(item)) return err(rulesFile, `${field}.item`, `"${item}" has no item definition (items.json or a room's assets)`)
     const def = shared.items[item]
@@ -161,7 +179,7 @@ export function crossValidateCatalog(
         )
       }
 
-      const asset = room.assets[step.item] ?? shared.items[step.item]
+      const asset = room.assets[step.item] ?? shared.items[step.item] ?? library.items[step.item]
       if (asset === undefined) err(file, `${field}.item`, `"${step.item}" has no entry under "assets"`)
 
       step.slots.forEach((slotName, j) => {
@@ -206,7 +224,28 @@ export function crossValidateCatalog(
     }
   }
 
-  return { errors, warnings, items: itemRegistry(rules, roomFiles, shared) }
+  const libraryItems = libraryRegistry(library)
+  return { errors, warnings, items: { ...libraryItems, ...itemRegistry(rules, roomFiles, shared) }, library: libraryItems }
+}
+
+function libraryRegistry(library: LibraryItems): Record<string, LibraryItem> {
+  return Object.fromEntries(
+    Object.entries(library.items).map(([id, def]) => [
+      id,
+      {
+        id,
+        layer: def.layer,
+        footprint: def.footprint,
+        width: def.width,
+        height: def.height,
+        slots: def.slots,
+        variants: def.variants,
+        mirrorable: def.mirrorable,
+        areas: def.areas,
+        ...(def.slot !== undefined ? { slot: def.slot } : {})
+      }
+    ])
+  )
 }
 
 /** items.json plus every room's assets; a room asset without `slots` takes the kinds of the slots it is placed in. */

@@ -39,11 +39,24 @@ function issuesOf(dir: string): string[] {
 describe('the bundled catalog', () => {
   const catalog = loadCatalog(CATALOG_DIR)
 
-  it('loads the four rooms', () => {
-    expect(Object.keys(catalog.rooms).sort()).toEqual(['art', 'coding', 'mailroom', 'music'])
+  it('loads only the Mail room; every other room is made by the person', () => {
+    expect(Object.keys(catalog.rooms)).toEqual(['mailroom'])
+    expect(catalog.rooms['mailroom']).toMatchObject({ cell: [0, 0], area: null, accent: 'mp-room-mailroom' })
     expect(catalog.rules.classification.fallback_room).toBe('mailroom')
     expect(catalog.rules.tracks.streak.milestones).toEqual([2, 3, 5, 8, 13, 21, 34])
     expect(catalog.rules.tracks.goals.milestones).toEqual([2, 3, 5, 8, 13])
+  })
+
+  it('has a library of items tagged by area, merged into the item registry', () => {
+    const tagged = (area: string) => Object.values(catalog.library).filter((i) => i.areas.includes(area)).map((i) => i.id)
+    expect(tagged('software')).toEqual(expect.arrayContaining(['coding_laptop', 'coding_monitor', 'coding_whiteboard', 'coding_rack', 'coding_arcade']))
+    expect(tagged('music')).toEqual(expect.arrayContaining(['music_mic', 'music_speakers', 'music_keyboard', 'music_guitar', 'music_mixer']))
+    expect(tagged('art')).toEqual(expect.arrayContaining(['art_sketchbook', 'art_easel', 'art_paint_cart', 'art_pegboard', 'art_pottery_wheel']))
+    expect(tagged('finance').length).toBeGreaterThanOrEqual(4)
+    expect(tagged('3d_printing').length).toBeGreaterThanOrEqual(4)
+    for (const id of Object.keys(catalog.library)) expect(catalog.items[id], id).toBeDefined()
+    expect(catalog.items['coding_monitor']).toMatchObject({ layer: 'surface_item', slots: ['desk_surface'] })
+    expect(catalog.library['music_speakers']).toMatchObject({ slots: ['desk_surface'], slot: 'desk_left' })
   })
 
   it('defines every item a ladder or a signature can place, with its size and slot kinds', () => {
@@ -57,9 +70,8 @@ describe('the bundled catalog', () => {
     for (const item of named) expect(catalog.items[item], item).toBeDefined()
     expect(catalog.items['base_desk']).toMatchObject({ layer: 'floor_item', footprint: [3, 1], height: 1, slots: ['desk'], variants: [] })
     expect(catalog.items['trophy']).toMatchObject({ slots: ['trophy_shelf'] })
-    // A signature item takes the kinds of the slots it is placed in.
-    expect(catalog.items['coding_monitor']).toMatchObject({ layer: 'surface_item', slots: ['desk_surface'], mirrorable: true })
-    expect(catalog.items['music_speakers']!.slots).toEqual(['desk_surface'])
+    // A room asset without "slots" takes the kinds of the slots it is placed in.
+    expect(catalog.items['mail_letter_tray']).toMatchObject({ layer: 'surface_item', slots: ['desk_surface'], mirrorable: true })
   })
 
   it('gives every slot a kind', () => {
@@ -74,16 +86,13 @@ describe('the bundled catalog', () => {
   })
 
   it('normalises "slot" and "slots" to one shape', () => {
-    expect(catalog.rooms['music']!.signature.find((s) => s.n === 2)!.slots).toEqual(['desk_left', 'desk_right'])
-    expect(catalog.rooms['coding']!.signature.find((s) => s.n === 2)!.slots).toEqual(['desk_center'])
+    expect(catalog.rooms['mailroom']!.signature.find((s) => s.n === 2)!.slots).toEqual(['beside_seat'])
   })
 
   it('reports the known oddities as warnings, not errors', () => {
     const short = catalog.warnings.map((w) => `${posix(w.file.slice(CATALOG_DIR.length + 1))}: ${w.field}: ${w.message}`)
     expect(short).toEqual([
       'rules.json: base_ladder.goals.0.at: "at": 1 is not one of tracks.goals.milestones [2, 3, 5, 8, 13]; unlocked at that count anyway',
-      'rooms/art.json: signature.4.slot: "art_pottery_wheel" has footprint [1, 1] but slot "floor_right" is [2, 1]',
-      'rooms/coding.json: signature.4.slot: "coding_arcade" has footprint [1, 1] but slot "floor_right" is [2, 1]',
       'rooms/mailroom.json: signature.1.item: "cardboard_box" is also the reward of signature.0; both copies are placed'
     ])
   })
@@ -124,45 +133,45 @@ describe('a broken catalog fails loudly with path and field', () => {
     },
     {
       name: 'wrong type in a room',
-      file: 'rooms/music.json',
+      file: 'rooms/mailroom.json',
       edit: (j) => void (j.accent = 'pink'),
-      expected: /rooms\/music\.json: accent: must be a #rrggbb colour/
+      expected: /rooms\/mailroom\.json: accent: must be a room accent token/
     },
     {
       name: 'missing field in a room',
-      file: 'rooms/art.json',
+      file: 'rooms/mailroom.json',
       edit: (j) => void delete j.belongs,
-      expected: /rooms\/art\.json: belongs: /
+      expected: /rooms\/mailroom\.json: belongs: /
     },
     {
       name: 'nested field in a room',
-      file: 'rooms/coding.json',
+      file: 'rooms/mailroom.json',
       edit: (j) => void (j.signature[2].n = 'three'),
-      expected: /rooms\/coding\.json: signature\.2\.n: /
+      expected: /rooms\/mailroom\.json: signature\.2\.n: /
     },
     {
       name: 'both slot and slots',
-      file: 'rooms/music.json',
-      edit: (j) => void (j.signature[1].slot = 'desk_left'),
-      expected: /rooms\/music\.json: signature\.1: must have exactly one of "slot" or "slots"/
+      file: 'rooms/mailroom.json',
+      edit: (j) => void (j.signature[1].slots = ['seat']),
+      expected: /rooms\/mailroom\.json: signature\.1: must have exactly one of "slot" or "slots"/
     },
     {
       name: 'unknown slot in a room',
-      file: 'rooms/coding.json',
+      file: 'rooms/mailroom.json',
       edit: (j) => void (j.signature[3].slot = 'ceiling'),
-      expected: /rooms\/coding\.json: signature\.3\.slot: unknown slot "ceiling"/
+      expected: /rooms\/mailroom\.json: signature\.3\.slot: unknown slot "ceiling"/
     },
     {
       name: 'item on the wrong layer',
-      file: 'rooms/coding.json',
+      file: 'rooms/mailroom.json',
       edit: (j) => void (j.signature[2].slot = 'floor_right'),
-      expected: /rooms\/coding\.json: signature\.2\.slot: "coding_whiteboard" is a wall_item but slot "floor_right" holds a floor_item/
+      expected: /rooms\/mailroom\.json: signature\.2\.slot: "mail_sorting_shelf" is a wall_item but slot "floor_right" holds a floor_item/
     },
     {
       name: 'signature item without an asset entry',
-      file: 'rooms/art.json',
-      edit: (j) => void delete j.assets.art_easel,
-      expected: /rooms\/art\.json: signature\.1\.item: "art_easel" has no entry under "assets"/
+      file: 'rooms/mailroom.json',
+      edit: (j) => void delete j.assets.mail_parcel_stack,
+      expected: /rooms\/mailroom\.json: signature\.3\.item: "mail_parcel_stack" has no entry under "assets"/
     },
     {
       name: 'a room missing a signature the ladder unlocks',
@@ -172,9 +181,9 @@ describe('a broken catalog fails loudly with path and field', () => {
     },
     {
       name: 'room id that does not match its file',
-      file: 'rooms/art.json',
+      file: 'rooms/mailroom.json',
       edit: (j) => void (j.id = 'atelier'),
-      expected: /rooms\/art\.json: id: "atelier" does not match the file name/
+      expected: /rooms\/mailroom\.json: id: "atelier" does not match the file name/
     },
     {
       name: 'milestones out of order',
@@ -214,9 +223,39 @@ describe('a broken catalog fails loudly with path and field', () => {
     },
     {
       name: 'file that is not JSON',
-      file: 'rooms/music.json',
-      edit: () => '{ "id": "music", ',
-      expected: /rooms\/music\.json: \(file\): is not valid JSON/
+      file: 'rooms/mailroom.json',
+      edit: () => '{ "id": "mailroom", ',
+      expected: /rooms\/mailroom\.json: \(file\): is not valid JSON/
+    },
+    {
+      name: 'library item with an unknown slot kind',
+      file: 'library.json',
+      edit: (j) => void (j.items.coding_rack.slots = ['ceiling']),
+      expected: /library\.json: items\.coding_rack\.slots\.0: /
+    },
+    {
+      name: 'library item with no area',
+      file: 'library.json',
+      edit: (j) => void (j.items.coding_rack.areas = []),
+      expected: /library\.json: items\.coding_rack\.areas: /
+    },
+    {
+      name: 'library item that items.json already defines',
+      file: 'library.json',
+      edit: (j) => void (j.items.base_desk = { layer: 'floor_item', footprint: [3, 1], height: 1, slots: ['desk'], areas: ['software'] }),
+      expected: /library\.json: items\.base_desk: is already defined in items\.json/
+    },
+    {
+      name: 'library slot hint that the layout does not have',
+      file: 'library.json',
+      edit: (j) => void (j.items.coding_rack.slot = 'ceiling'),
+      expected: /library\.json: items\.coding_rack\.slot: unknown slot "ceiling"/
+    },
+    {
+      name: 'library slot hint of the wrong kind',
+      file: 'library.json',
+      edit: (j) => void (j.items.coding_rack.slot = 'wall_right_b'),
+      expected: /library\.json: items\.coding_rack\.slot: "coding_rack" may not stand in a "wall" slot/
     }
   ]
 
@@ -229,21 +268,23 @@ describe('a broken catalog fails loudly with path and field', () => {
   })
 
   it('lists every problem at once, in one error message', () => {
-    const { dir } = brokenCopy('rooms/music.json', (j) => {
+    const { dir } = brokenCopy('rooms/mailroom.json', (j) => {
       j.accent = 'pink'
       j.examples = []
     })
-    writeFileSync(join(dir, 'rooms', 'art.json'), 'nope')
+    writeFileSync(join(dir, 'library.json'), 'nope')
     let message = ''
     try {
       loadCatalog(dir)
     } catch (error) {
       message = (error as Error).message
     }
-    expect(message).toMatch(/3 problems in the catalog files/)
-    expect(message).toContain(`${join(dir, 'rooms', 'music.json')}: accent:`)
-    expect(message).toContain(`${join(dir, 'rooms', 'music.json')}: examples:`)
-    expect(message).toContain(`${join(dir, 'rooms', 'art.json')}: (file): is not valid JSON`)
+    // The broken Mail room file also leaves the fallback room without a file.
+    expect(message).toMatch(/4 problems in the catalog files/)
+    expect(message).toContain('classification.fallback_room: no room file has id "mailroom"')
+    expect(message).toContain(`${join(dir, 'rooms', 'mailroom.json')}: accent:`)
+    expect(message).toContain(`${join(dir, 'rooms', 'mailroom.json')}: examples:`)
+    expect(message).toContain(`${join(dir, 'library.json')}: (file): is not valid JSON`)
   })
 
   it('reports a missing rules.json and a missing rooms folder', () => {

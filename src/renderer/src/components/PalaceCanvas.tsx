@@ -12,7 +12,7 @@ import { slotAt } from '@shared/editMode'
 import { fadeDarkness, setFiltersIfAlive, type Fade } from './fade'
 import { darknessOf, FLICKER, flickerOn, LIGHTS_ON_MS, nextFlickerDelay } from '@shared/flicker'
 import type { DecayLevel } from '@shared/engine'
-import { readPalette, readToken, roomAccentToken, type Palette } from '../theme'
+import { accentVar, readPalette, readToken, type Palette } from '../theme'
 
 /**
  * The connected palace, drawn as one PixiJS scene from the floor model. Every
@@ -37,13 +37,9 @@ const shellLook = (shell: ShellTier): { floor: number; wall: number; tint: numbe
 })
 /** Every colour comes from the `--mp-*` tokens, read when the canvas mounts. */
 let P: Palette
-/** A room's accent token, or the catalog's accent when the theme has none for that room. */
-function accentOf(room: { id: string; accent: string }): number {
-  try {
-    return readToken(roomAccentToken(room.id))
-  } catch {
-    return hex(room.accent)
-  }
+/** A room's accent, from its token (`accent` is a token name, never a colour). */
+function accentOf(room: { accent: string }): number {
+  return readToken(accentVar(room.accent))
 }
 
 const pts = (corners: Array<{ x: number; y: number }>): number[] => corners.flatMap((c) => [c.x, c.y])
